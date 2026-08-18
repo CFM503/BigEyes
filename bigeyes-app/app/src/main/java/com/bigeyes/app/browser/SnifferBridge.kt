@@ -16,7 +16,13 @@ class SnifferBridge(
         private const val TAG = "SnifferBridge"
     }
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy {
+        try {
+            Handler(Looper.getMainLooper())
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     @JavascriptInterface
     fun onVideoDetected(rawUrl: String?, title: String?, referer: String?) {
@@ -27,7 +33,7 @@ class SnifferBridge(
 
         Log.d(TAG, "JS bridge sniffed candidate stream: $directUrl (raw: $rawUrl)")
 
-        mainHandler.post {
+        val action = Runnable {
             val cleanTitle = title?.takeIf { it.isNotBlank() } ?: "在线视频"
             val userAgent = getCurrentUserAgent()
             val cookie = getCurrentCookie(directUrl)
@@ -41,6 +47,13 @@ class SnifferBridge(
                 timestamp = System.currentTimeMillis()
             )
             CandidateManager.addCandidate(candidate)
+        }
+
+        val handler = mainHandler
+        if (handler != null) {
+            handler.post(action)
+        } else {
+            action.run()
         }
     }
 }

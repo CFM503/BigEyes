@@ -17,7 +17,13 @@ object CandidateManager {
     private val candidates = LinkedList<VideoCandidate>()
     private val sniffLogs = LinkedList<SniffLogEntry>()
     private val listeners = Collections.synchronizedList(mutableListOf<(List<VideoCandidate>) -> Unit>())
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy {
+        try {
+            Handler(Looper.getMainLooper())
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     @Synchronized
     fun addCandidate(candidate: VideoCandidate): Boolean {
@@ -40,7 +46,10 @@ object CandidateManager {
         candidate.cookie?.let { logHeaders["Cookie"] = it }
         addLog(SniffLogEntry(candidate.url, logHeaders, candidate.timestamp))
 
-        Log.i(TAG, "Added candidate: ${candidate.displayTitle} -> ${candidate.url} (Total: ${candidates.size})")
+        try {
+            Log.i(TAG, "Added candidate: ${candidate.displayTitle} -> ${candidate.url} (Total: ${candidates.size})")
+        } catch (_: Throwable) {}
+
         notifyListeners()
         return true
     }
@@ -80,7 +89,16 @@ object CandidateManager {
 
     private fun notifyListeners() {
         val currentList = getCandidates()
-        mainHandler.post {
+        val handler = mainHandler
+        if (handler != null) {
+            handler.post {
+                synchronized(listeners) {
+                    for (listener in listeners) {
+                        listener(currentList)
+                    }
+                }
+            }
+        } else {
             synchronized(listeners) {
                 for (listener in listeners) {
                     listener(currentList)

@@ -22,7 +22,13 @@ class SnifferWebViewClient(
         private const val TAG = "SnifferWebViewClient"
     }
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy {
+        try {
+            Handler(Looper.getMainLooper())
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     override fun shouldInterceptRequest(
         view: WebView?,
@@ -41,7 +47,7 @@ class SnifferWebViewClient(
             val userAgent = headers["User-Agent"] ?: headers["user-agent"] ?: view?.settings?.userAgentString
             val cookie = headers["Cookie"] ?: headers["cookie"] ?: CookieManager.getInstance().getCookie(directUrl)
 
-            mainHandler.post {
+            val action = Runnable {
                 val pageTitle = view?.title ?: uri.lastPathSegment ?: "在线视频"
                 val candidate = VideoCandidate(
                     url = directUrl,
@@ -52,6 +58,13 @@ class SnifferWebViewClient(
                     timestamp = System.currentTimeMillis()
                 )
                 CandidateManager.addCandidate(candidate)
+            }
+
+            val handler = mainHandler
+            if (handler != null) {
+                handler.post(action)
+            } else {
+                action.run()
             }
         }
 

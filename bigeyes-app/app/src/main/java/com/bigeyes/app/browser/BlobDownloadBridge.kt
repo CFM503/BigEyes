@@ -18,7 +18,13 @@ class BlobDownloadBridge(
         private const val TAG = "BlobDownloadBridge"
     }
 
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy {
+        try {
+            Handler(Looper.getMainLooper())
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     @JavascriptInterface
     fun onBlobData(base64DataUrl: String, filename: String, mimeType: String) {
@@ -30,7 +36,7 @@ class BlobDownloadBridge(
             val cleanName = WebViewDownloadHelper.sanitizeFilename(filename, parsed.suggestedExtension)
             val uri = WebViewDownloadHelper.saveBytesToPublicDownloads(context, parsed.data, cleanName, finalMime)
 
-            mainHandler.post {
+            val action = Runnable {
                 if (uri != null) {
                     Toast.makeText(
                         context,
@@ -47,8 +53,9 @@ class BlobDownloadBridge(
                     onDownloadCompleted?.invoke(cleanName, false)
                 }
             }
+            mainHandler?.post(action) ?: action.run()
         } else {
-            mainHandler.post {
+            val action = Runnable {
                 Toast.makeText(
                     context,
                     context.getString(R.string.download_failed, "无法解析导出数据"),
@@ -56,18 +63,20 @@ class BlobDownloadBridge(
                 ).show()
                 onDownloadCompleted?.invoke(filename, false)
             }
+            mainHandler?.post(action) ?: action.run()
         }
     }
 
     @JavascriptInterface
     fun onBlobError(error: String) {
         Log.e(TAG, "Blob extraction error from JS: $error")
-        mainHandler.post {
+        val action = Runnable {
             Toast.makeText(
                 context,
                 context.getString(R.string.download_failed, error),
                 Toast.LENGTH_LONG
             ).show()
         }
+        mainHandler?.post(action) ?: action.run()
     }
 }
