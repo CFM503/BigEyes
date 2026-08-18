@@ -2,10 +2,12 @@ package com.bigeyes.app.updater
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.util.Log
@@ -39,6 +41,11 @@ object UpdateManager {
     private const val GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/CFM503/BigEyes/releases/latest"
     private const val GITHUB_REPO_RELEASES_URL = "https://github.com/CFM503/BigEyes/releases"
 
+    private const val PREFS_NAME = "bigeyes_updater_prefs"
+    private const val PREF_PENDING_APK_PATH = "pending_apk_path"
+    private const val PREF_PENDING_VERSION = "pending_version"
+    private const val PREF_WAITING_PERMISSION = "waiting_permission"
+
     data class UpdateInfo(
         val versionName: String,
         val title: String,
@@ -53,12 +60,97 @@ object UpdateManager {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    // In-memory references to pending install file and target update info
+    private var pendingApkFile: File? = null
+    private var pendingUpdateInfo: UpdateInfo? = null
+    private var isWaitingForInstallPermission = false
+    private var isLifecycleRegistered = false
+
     fun getCurrentVersionName(context: Context): String {
         return try {
             val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            pInfo.versionName ?: "2.0.4"
+            pInfo.versionName ?: "2.0.5"
         } catch (_: Exception) {
-            "2.0.4"
+            "2.0.5"
+        }
+    }
+
+    private fun ensureLifecycleObserver(activity: Activity) {
+        if (!isLifecycleRegistered) {
+            isLifecycleRegistered = true
+            activity.application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityResumed(act: Activity) {
+                    checkAndResumePendingInstall(act)
+                }
+                override fun onActivityCreated(act: Activity, savedInstanceState: Bundle?) {}
+                override fun onActivityStarted(act: Activity) {}
+                override fun onActivityPaused(act: Activity) {}
+                override fun onActivityStopped(act: Activity) {}
+                override fun onActivitySaveInstanceState(act: Activity, outState: Bundle) {}
+                override fun onActivityDestroyed(act: Activity) {}
+            })
+        }
+    }
+
+    private fun savePendingInstallState(
+        context: Context,
+        apkFile: File?,
+        info: UpdateInfo?,
+        waitingPermission: Boolean
+    ) {
+        pendingApkFile = apkFile
+        pendingUpdateInfo = info
+        isWaitingForInstallPermission = waitingPermission
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            if (apkFile != null) {
+                putString(PREF_PENDING_APK_PATH, apkFile.absolutePath)
+                putString(PREF_PENDING_VERSION, info?.versionName ?: "")
+                putBoolean(PREF_WAITING_PERMISSION, waitingPermission)
+            } else {
+                remove(PREF_PENDING_APK_PATH)
+                remove(PREF_PENDING_VERSION)
+                remove(PREF_WAITING_PERMISSION)
+            }
+            apply()
+        }
+    }
+
+    private fun getPendingApkFile(context: Context): File? {
+        if (pendingApkFile?.exists() == true) {
+            return pendingApkFile
+        }
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val path = prefs.getString(PREF_PENDING_APK_PATH, null)
+        if (!path.isNullOrBlank()) {
+            val file = File(path)
+            if (file.exists()) {
+                pendingApkFile = file
+                isWaitingForInstallPermission = prefs.getBoolean(PREF_WAITING_PERMISSION, false)
+                return file
+            }
+        }
+        return null
+    }
+
+    private fun clearPendingInstallState(context: Context) {
+        savePendingInstallState(context, null, null, false)
+    }
+
+    fun checkAndResumePendingInstall(activity: Activity) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val prefs = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val waiting = isWaitingForInstallPermission || prefs.getBoolean(PREF_WAITING_PERMISSION, false)
+            val apk = getPendingApkFile(activity)
+
+            if (waiting && apk != null && apk.exists()) {
+                if (activity.packageManager.canRequestPackageInstalls()) {
+                    Log.i(TAG, "Install permission granted on resume. Auto-continuing installation for: ${apk.name}")
+                    savePendingInstallState(activity, apk, pendingUpdateInfo, false)
+                    installApk(activity, apk)
+                }
+            }
         }
     }
 
@@ -151,6 +243,7 @@ object UpdateManager {
     }
 
     fun checkUpdate(activity: AppCompatActivity, silent: Boolean = false, onComplete: ((Boolean) -> Unit)? = null) {
+        ensureLifecycleObserver(activity)
         val currentVersion = getCurrentVersionName(activity)
         if (!silent) {
             Toast.makeText(activity, "正在检查 GitHub 最新版本...", Toast.LENGTH_SHORT).show()
@@ -206,6 +299,58 @@ object UpdateManager {
     fun downloadAndInstall(activity: AppCompatActivity, info: UpdateInfo) {
         val downloadUrl = info.downloadUrl ?: return openBrowser(activity, info.releaseHtmlUrl)
 
+        ensureLifecycleObserver(activity)
+        pendingUpdateInfo = info
+
+        val destFile = File(
+            activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir,
+            "BigEyes_v${info.versionName}.apk"
+        )
+        pendingApkFile = destFile
+
+        // Check cache before downloading
+        activity.lifecycleScope.launch(Dispatchers.IO) {
+            var serverContentLength = -1L
+            try {
+                val headRequest = Request.Builder()
+                    .url(downloadUrl)
+                    .head()
+                    .header("User-Agent", "BigEyes-App")
+                    .build()
+                httpClient.newCall(headRequest).execute().use { headResp ->
+                    if (headResp.isSuccessful) {
+                        serverContentLength = headResp.header("Content-Length")?.toLongOrNull() ?: -1L
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "HEAD request check skipped: ${e.message}")
+            }
+
+            // If local APK file already exists and length matches server Content-Length, skip download
+            if (destFile.exists() && destFile.length() > 0) {
+                if (serverContentLength > 0 && destFile.length() == serverContentLength) {
+                    Log.i(TAG, "Cached APK found matching Content-Length ($serverContentLength bytes). Skipping download.")
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(activity, "检测到已下载完整安装包，正在启动安装...", Toast.LENGTH_SHORT).show()
+                        installApk(activity, destFile)
+                    }
+                    return@launch
+                }
+            }
+
+            // Otherwise proceed to download with progress dialog
+            withContext(Dispatchers.Main) {
+                startDownloadWithDialog(activity, info, downloadUrl, destFile)
+            }
+        }
+    }
+
+    private fun startDownloadWithDialog(
+        activity: AppCompatActivity,
+        info: UpdateInfo,
+        downloadUrl: String,
+        destFile: File
+    ) {
         // Inflate progress dialog view
         val dialogView = LayoutInflater.from(activity).inflate(R.layout.dialog_download_progress, null)
         val progressBar = dialogView.findViewById<ProgressBar>(R.id.pb_download)
@@ -230,11 +375,6 @@ object UpdateManager {
         progressDialog.show()
 
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            val destFile = File(
-                activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.cacheDir,
-                "BigEyes_v${info.versionName}.apk"
-            )
-
             try {
                 val request = Request.Builder()
                     .url(downloadUrl)
@@ -314,14 +454,20 @@ object UpdateManager {
     fun installApk(activity: Activity, apkFile: File) {
         if (!apkFile.exists()) {
             Toast.makeText(activity, "安装包不存在", Toast.LENGTH_SHORT).show()
+            clearPendingInstallState(activity)
             return
         }
+
+        ensureLifecycleObserver(activity)
 
         try {
             // Android 8.0+ unknown sources permission check
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 if (!activity.packageManager.canRequestPackageInstalls()) {
-                    Toast.makeText(activity, "请允许 BigEyes 安装应用权限以完成更新", Toast.LENGTH_LONG).show()
+                    // Record state so that when user returns from Settings, install resumes automatically
+                    savePendingInstallState(activity, apkFile, pendingUpdateInfo, true)
+                    Toast.makeText(activity, "请允许 BigEyes 安装应用权限，返回后将自动继续安装", Toast.LENGTH_LONG).show()
+
                     val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                         data = Uri.parse("package:${activity.packageName}")
                     }
@@ -329,6 +475,9 @@ object UpdateManager {
                     return
                 }
             }
+
+            // Permission granted, clear waiting flag
+            savePendingInstallState(activity, apkFile, pendingUpdateInfo, false)
 
             val apkUri = FileProvider.getUriForFile(
                 activity,
