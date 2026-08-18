@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black">
+
+    <!-- Top Browser Navigation Bar -->
+    <LinearLayout
+        android:id="@+id/top_bar"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#262626"
+        android:paddingHorizontal="8dp"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_media_previous"
+            android:tint="@color/white"
+            android:contentDescription="后退" />
+
+        <ImageButton
+            android:id="@+id/btn_forward"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_media_next"
+            android:tint="@color/white"
+            android:contentDescription="前进" />
+
+        <EditText
+            android:id="@+id/et_url"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="6dp"
+            android:background="#3A3A3A"
+            android:textColor="@color/white"
+            android:textColorHint="@color/text_muted"
+            android:hint="输入影视资源站网址..."
+            android:textSize="13sp"
+            android:paddingHorizontal="10dp"
+            android:singleLine="true"
+            android:imeOptions="actionGo"
+            android:inputType="textUri" />
+
+        <!-- Cast Button with Candidate Count Badge -->
+        <FrameLayout
+            android:id="@+id/layout_cast_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp">
+
+            <Button
+                android:id="@+id/btn_cast"
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:text="投屏"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:backgroundTint="@color/brand_primary"
+                android:textColor="@color/white"
+                android:paddingHorizontal="12dp" />
+
+            <TextView
+                android:id="@+id/tv_badge_count"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="top|end"
+                android:background="@android:color/holo_red_dark"
+                android:textColor="@color/white"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:visibility="gone"
+                android:text="1" />
+        </FrameLayout>
+
+        <ImageButton
+            android:id="@+id/btn_settings"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_preferences"
+            android:tint="@color/white"
+            android:contentDescription="设置" />
+    </LinearLayout>
+
+    <!-- Page Load Progress Bar -->
+    <ProgressBar
+        android:id="@+id/progress_bar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:progressDrawable="@drawable/progress_bar_drawable"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/top_bar" />
+
+    <!-- Main WebView -->
+    <WebView
+        android:id="@+id/web_view"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toBottomOf="@id/progress_bar"
+        app:layout_constraintBottom_toTopOf="@id/container_playback_control" />
+
+    <!-- Bottom Playback Control Container (Visible when active casting) -->
+    <FrameLayout
+        android:id="@+id/container_playback_control"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <include layout="@layout/view_playback_control" />
+    </FrameLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
