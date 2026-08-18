@@ -15,6 +15,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.ValueCallback
@@ -39,7 +40,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.bigeyes.app.browser.BlobDownloadBridge
 import com.bigeyes.app.browser.CandidateManager
+import com.bigeyes.app.browser.SnifferBridge
 import com.bigeyes.app.browser.SnifferWebViewClient
+import com.bigeyes.app.browser.VideoSnifferHelper
 import com.bigeyes.app.browser.WebViewDownloadHelper
 import com.bigeyes.app.dlna.DlnaDeviceManager
 import com.bigeyes.app.model.VideoCandidate
