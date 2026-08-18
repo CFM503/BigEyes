@@ -38,23 +38,20 @@
 ```
 bigeyes/
 ├── .github/workflows/            # GitHub Actions 自动化编译发布 Release 工作流
-├── bigeyes-app/                  # 【v2 核心】Android 客户端 (纯手机独立版)
+├── bigeyes-app/                  # 【核心】Android 客户端 (纯手机独立版)
 │   ├── app/src/main/
 │   │   ├── java/com/bigeyes/app/
-│   │   │   ├── browser/          # WebView 壳浏览器与 shouldInterceptRequest 嗅探
+│   │   │   ├── browser/          # WebView 壳浏览器、shouldInterceptRequest 嗅探与 Blob 下载桥
 │   │   │   ├── proxy/            # 内嵌 NanoHTTPD 代理、M3U8 解析改写、预取与 LRU 缓存
 │   │   │   ├── dlna/             # 原生 SSDP 局域网扫描与 UPnP SOAP 播控 (Play/Pause/Seek)
 │   │   │   ├── service/          # CastingForegroundService 前台保活与锁管理
 │   │   │   ├── updater/          # UpdateManager GitHub Releases 在线自动检测、下载与安装
 │   │   │   ├── model/            # 数据模型 (StreamSession, Candidate, DlnaDevice)
 │   │   │   └── ui/               # 浏览器主界面、底部浮动播控条、设置与抓包调试面板
-│   │   └── res/                  # 布局与样式资源
+│   │   ├── res/                  # 布局与样式资源
+│   │   └── keystore/             # 统一固化签名证书 (bigeyes-release.jks)
 │   ├── build.gradle.kts
 │   └── settings.gradle.kts
-│
-├── bigeyes-server/               # 【v1 归档参考】原 PC 端 Python 服务 (v2 无须运行)
-│   ├── app/
-│   └── run_server.py
 │
 ├── CHANGELOG.md                  # 版本发布与修改日志
 └── README.md
@@ -94,7 +91,8 @@ cd bigeyes-app
 
 ## 三、版本记录
 
-* **v2.0.5 (当前版本)**：在线安装授权流程优化（跳转设置授权后自动续装无需重下/重查）、本地安装包 Content-Length 缓存加速、待安装状态持久化。
+* **v2.0.6 (当前版本)**：架构彻底精简，移除废弃的 Python PC 服务端目录，代码库聚焦纯手机独立版。
+* **v2.0.5**：在线安装授权流程优化（跳转设置授权后自动续装无需重下/重查）、本地安装包 Content-Length 缓存加速、待安装状态持久化。
 * **v2.0.4**：WebView 触控兼容性全面审计与修复（全屏/导入/导出/焦点/防误缩放/WindowInsets），固化固定签名证书修复在线更新冲突。
 * **v2.0.3**：默认首页更新为影视聚合站点 `https://vodplus.pages.dev`，支持地址栏同步回显。
 * **v2.0.2**：在线自动更新支持（GitHub Releases 检查/下载/安装）、动态滑动 WakeLock 续期、代理弹性有界线程池、VLC/Kodi 调试面板及全套边界单测。

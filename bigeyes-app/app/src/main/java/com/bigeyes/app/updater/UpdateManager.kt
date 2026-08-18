@@ -69,9 +69,9 @@ object UpdateManager {
     fun getCurrentVersionName(context: Context): String {
         return try {
             val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            pInfo.versionName ?: "2.0.5"
+            pInfo.versionName ?: "2.0.6"
         } catch (_: Exception) {
-            "2.0.5"
+            "2.0.6"
         }
     }
 
