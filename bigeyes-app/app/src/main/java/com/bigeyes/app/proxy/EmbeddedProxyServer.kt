@@ -2,10 +2,17 @@ package com.bigeyes.app.proxy
 
 import android.content.Context
 import android.util.Log
+import com.bigeyes.app.service.CastingForegroundService
 import com.bigeyes.app.utils.NetworkUtils
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayInputStream
+import java.util.Collections
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 class EmbeddedProxyServer(
     private val context: Context,
@@ -18,6 +25,38 @@ class EmbeddedProxyServer(
         const val DEFAULT_PORT = 8765
     }
 
+    class PooledAsyncRunner(
+        private val executor: ExecutorService = ThreadPoolExecutor(
+            4,
+            16,
+            60L,
+            TimeUnit.SECONDS,
+            SynchronousQueue(),
+            Executors.defaultThreadFactory()
+        )
+    ) : AsyncRunner {
+        private val running = Collections.synchronizedList(mutableListOf<ClientHandler>())
+
+        override fun closeAll() {
+            running.toList().forEach { it.close() }
+            executor.shutdown()
+        }
+
+        override fun closed(clientHandler: ClientHandler) {
+            running.remove(clientHandler)
+        }
+
+        override fun exec(clientHandler: ClientHandler) {
+            running.add(clientHandler)
+            executor.execute(clientHandler)
+        }
+    }
+
+    init {
+        // Use bounded thread pool (4~16 threads) for NanoHTTPD request handling
+        setAsyncRunner(PooledAsyncRunner())
+    }
+
     val serverPort: Int = port
 
     fun getProxyBaseUrl(): String {
@@ -28,6 +67,9 @@ class EmbeddedProxyServer(
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
         Log.d(TAG, "Serving HTTP request: ${session.method} $uri")
+
+        // Renew WakeLock on every incoming request
+        CastingForegroundService.instance?.renewLocks()
 
         if (session.method == Method.OPTIONS) {
             val resp = newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "")
@@ -89,7 +131,6 @@ class EmbeddedProxyServer(
     }
 
     private fun serveSegment(uri: String): Response {
-        // e.g. /stream/{streamId}/seg/{index}.ts or /stream/{streamId}/seg/{index}
         val parts = uri.trim('/').split('/')
         if (parts.size < 4) {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid segment path")
@@ -116,7 +157,6 @@ class EmbeddedProxyServer(
     }
 
     private fun serveKey(uri: String): Response {
-        // e.g. /stream/{streamId}/key/{index}.key
         val parts = uri.trim('/').split('/')
         if (parts.size < 4) {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid key path")

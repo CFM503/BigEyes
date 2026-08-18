@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="@color/brand_primary"
-        app:title="设置与调试 (v2 纯手机版)"
+        app:title="设置与真机联调辅助"
         app:titleTextColor="@color/white"
         app:navigationIcon="@android:drawable/ic_menu_revert" />
 
@@ -25,7 +25,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Battery Optimization Whitelist Card -->
+            <!-- Card 1: Local Proxy & VLC Test Assistant -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -42,89 +42,121 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="锁屏与后台保活保障"
-                        android:textStyle="bold"
-                        android:textSize="16sp"
-                        android:textColor="@color/black" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="BigEyes 作为手机本地流媒体代理服务器，投屏期间需保持 CPU 与 WiFi 高性能运行。建议开启后台无限制白名单以防电视断流。"
-                        android:textColor="#666666"
-                        android:textSize="12sp"
-                        android:layout_marginTop="4dp" />
-
-                    <Button
-                        android:id="@+id/btn_ignore_battery"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="申请忽略电池优化 (防锁屏断流)"
-                        android:layout_marginTop="12dp"
-                        android:backgroundTint="@color/brand_secondary" />
-
-                </LinearLayout>
-            </androidx.cardview.widget.CardView>
-
-            <!-- Local Proxy Server Status Card -->
-            <androidx.cardview.widget.CardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:cardCornerRadius="8dp"
-                app:cardElevation="2dp"
-                android:layout_marginBottom="16dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="手机本地内嵌 HTTP 服务"
+                        android:text="① 本地代理服务 (VLC 联调专用)"
                         android:textStyle="bold"
                         android:textSize="16sp"
                         android:textColor="@color/black" />
 
                     <TextView
                         android:id="@+id/tv_local_server_info"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="本机局域网 IP: 获取中...\n内嵌代理端口: 8765\n预取并发: 2~3 (手机专属调优)"
-                        android:textColor="#444444"
+                        android:text="本机局域网 IP: 获取中...\n内嵌代理端口: 8765\n代理根地址: http://127.0.0.1:8765"
+                        android:textColor="#333333"
                         android:textSize="13sp"
                         android:layout_marginTop="6dp" />
+
+                    <TextView
+                        android:id="@+id/tv_vlc_m3u8_url"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="VLC 播放地址: (请先在浏览器中嗅探并播放视频)"
+                        android:textColor="@color/brand_primary"
+                        android:textStyle="bold"
+                        android:textSize="12sp"
+                        android:background="#E8F0FE"
+                        android:padding="8dp"
+                        android:layout_marginTop="8dp" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="12dp">
+                        android:layout_marginTop="10dp">
 
-                        <TextView
-                            android:id="@+id/tv_cache_info"
+                        <Button
+                            android:id="@+id/btn_copy_vlc_url"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="缓存占用: 0 MB / 300 MB"
-                            android:textSize="13sp"
-                            android:textColor="#555555" />
+                            android:text="复制 VLC 播放地址"
+                            android:backgroundTint="@color/brand_primary"
+                            android:layout_marginEnd="6dp" />
 
                         <Button
-                            android:id="@+id/btn_clear_cache"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:text="清理分片缓存"
+                            android:id="@+id/btn_copy_base_url"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="复制 IP:Port 前缀"
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
                     </LinearLayout>
 
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
-            <!-- Sniff Debug Logs Card -->
+            <!-- Card 2: Latest Sniffed Video Candidate Details -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="② 最近一次嗅探候选与防盗链 Header"
+                        android:textStyle="bold"
+                        android:textSize="16sp"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:id="@+id/tv_candidate_details"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="12sp"
+                        android:typeface="monospace"
+                        android:background="#F8F9FA"
+                        android:padding="8dp"
+                        android:layout_marginTop="8dp"
+                        android:textColor="#222222"
+                        android:text="暂无嗅探候选。在浏览器中播放视频后，此处将自动展示完整的 StreamID、原始 URL 及 Referer/UA/Cookie 上下文。" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="10dp">
+
+                        <Button
+                            android:id="@+id/btn_copy_orig_url"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="复制原始 M3U8"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_marginEnd="6dp" />
+
+                        <Button
+                            android:id="@+id/btn_copy_all_candidate_info"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="复制完整抓包参数"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                    </LinearLayout>
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Card 3: Live DLNA Scan List (for Kodi / TV Discovery) -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -148,7 +180,100 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="嗅探抓包调试记录"
+                            android:text="③ 局域网 DLNA 设备扫描 (Kodi/电视)"
+                            android:textStyle="bold"
+                            android:textSize="16sp"
+                            android:textColor="@color/black" />
+
+                        <Button
+                            android:id="@+id/btn_rescan_dlna"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="立即扫描"
+                            style="@style/Widget.MaterialComponents.Button.TextButton" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tv_dlna_device_list"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="12sp"
+                        android:typeface="monospace"
+                        android:background="#F8F9FA"
+                        android:padding="8dp"
+                        android:layout_marginTop="8dp"
+                        android:textColor="#333333"
+                        android:text="点击“立即扫描”或等待后台定时探测局域网内开机的电视/Kodi 设备..." />
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Card 4: Battery Optimization Whitelist Card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="④ 锁屏与后台保活保障"
+                        android:textStyle="bold"
+                        android:textSize="16sp"
+                        android:textColor="@color/black" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BigEyes 投屏期间自动维持 15 分钟动态滑动 WakeLock 并随分片请求自动续期，30 分钟无活动自动释放。建议开启后台无限制白名单以防电视断流。"
+                        android:textColor="#666666"
+                        android:textSize="12sp"
+                        android:layout_marginTop="4dp" />
+
+                    <Button
+                        android:id="@+id/btn_ignore_battery"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="申请忽略电池优化 (防锁屏断流)"
+                        android:layout_marginTop="12dp"
+                        android:backgroundTint="@color/brand_secondary" />
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Card 5: Cache & Debug Logs Card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="⑤ 分片缓存与抓包日志"
                             android:textStyle="bold"
                             android:textSize="16sp"
                             android:textColor="@color/black" />
@@ -157,8 +282,32 @@
                             android:id="@+id/btn_clear_logs"
                             android:layout_width="wrap_content"
                             android:layout_height="36dp"
-                            android:text="清空"
+                            android:text="清空抓包"
                             style="@style/Widget.MaterialComponents.Button.TextButton" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="6dp">
+
+                        <TextView
+                            android:id="@+id/tv_cache_info"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="缓存占用: 0 MB / 300 MB"
+                            android:textSize="13sp"
+                            android:textColor="#555555" />
+
+                        <Button
+                            android:id="@+id/btn_clear_cache"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="清理缓存"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
                     </LinearLayout>
 
                     <TextView
@@ -171,7 +320,7 @@
                         android:padding="8dp"
                         android:layout_marginTop="8dp"
                         android:textColor="#333333"
-                        android:text="暂无抓包记录。在浏览器中播放视频后，此处将展示原始嗅探 URL 及 Headers 上下文。" />
+                        android:text="暂无历史抓包记录。" />
 
                 </LinearLayout>
             </androidx.cardview.widget.CardView>

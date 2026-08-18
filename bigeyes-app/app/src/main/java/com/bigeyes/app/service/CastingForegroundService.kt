@@ -11,7 +11,6 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.bigeyes.app.MainActivity
-import com.bigeyes.app.R
 import com.bigeyes.app.dlna.DlnaDeviceManager
 import com.bigeyes.app.model.CastStatus
 import com.bigeyes.app.model.VideoCandidate
@@ -30,6 +29,9 @@ class CastingForegroundService : Service() {
         const val ACTION_STOP_CAST = "com.bigeyes.app.action.STOP_CAST"
         const val EXTRA_CANDIDATE = "extra_candidate"
 
+        private const val WAKELOCK_TIMEOUT_MS = 15 * 60 * 1000L // 15 minutes dynamic sliding window
+        private const val IDLE_SHUTDOWN_TIMEOUT_MS = 30 * 60 * 1000L // 30 minutes idle safety fallback
+
         // Singleton reference accessible by MainActivity while service is running
         var instance: CastingForegroundService? = null
             private set
@@ -37,7 +39,8 @@ class CastingForegroundService : Service() {
 
     lateinit var streamManager: StreamManager
         private set
-    private var proxyServer: EmbeddedProxyServer? = null
+    var proxyServer: EmbeddedProxyServer? = null
+        private set
     lateinit var dlnaManager: DlnaDeviceManager
         private set
 
@@ -45,6 +48,7 @@ class CastingForegroundService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var idleShutdownJob: Job? = null
 
     var currentStatus: CastStatus = CastStatus()
         private set
@@ -58,6 +62,7 @@ class CastingForegroundService : Service() {
         acquireLocks()
         startProxyServer()
         dlnaManager.startPeriodicScan()
+        resetIdleTimeout()
         Log.i(TAG, "CastingForegroundService created")
     }
 
@@ -80,22 +85,55 @@ class CastingForegroundService : Service() {
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
             wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BigEyes:CastingWakeLock")?.apply {
-                acquire(4 * 60 * 60 * 1000L) // 4 hours max timeout
+                setReferenceCounted(false)
+                acquire(WAKELOCK_TIMEOUT_MS)
             }
-            Log.d(TAG, "WakeLock acquired")
+            Log.d(TAG, "WakeLock acquired with 15min dynamic window")
 
             val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             @Suppress("DEPRECATION")
             wifiLock = wm?.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "BigEyes:CastingWifiLock")?.apply {
+                setReferenceCounted(false)
                 acquire()
             }
             multicastLock = wm?.createMulticastLock("BigEyes:CastingMulticastLock")?.apply {
-                setReferenceCounted(true)
+                setReferenceCounted(false)
                 acquire()
             }
             Log.d(TAG, "WifiLock & MulticastLock acquired")
         } catch (e: Exception) {
             Log.w(TAG, "Error acquiring locks: ${e.message}")
+        }
+    }
+
+    /**
+     * Dynamically renew WakeLock and reset idle timeout timer.
+     * Invoked automatically whenever a segment is requested, m3u8 is parsed, or playback command executes.
+     */
+    fun renewLocks() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                }
+                it.acquire(WAKELOCK_TIMEOUT_MS)
+            }
+            wifiLock?.let {
+                if (!it.isHeld) it.acquire()
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Lock renewal: ${e.message}")
+        }
+        resetIdleTimeout()
+    }
+
+    private fun resetIdleTimeout() {
+        idleShutdownJob?.cancel()
+        idleShutdownJob = scope.launch {
+            delay(IDLE_SHUTDOWN_TIMEOUT_MS)
+            Log.i(TAG, "Idle timeout reached (30 min inactive). Automatically stopping casting service to conserve battery.")
+            stopCasting()
+            stopSelf()
         }
     }
 
@@ -138,8 +176,10 @@ class CastingForegroundService : Service() {
                 stopSelf()
             }
             ACTION_START_CAST -> {
+                @Suppress("DEPRECATION")
                 val candidate = intent?.getSerializableExtra(EXTRA_CANDIDATE) as? VideoCandidate
                 startForegroundNotification("正在准备投屏...", "BigEyes 正在为您提供本地流代理")
+                renewLocks()
                 if (candidate != null) {
                     castCandidate(candidate)
                 }
@@ -177,6 +217,8 @@ class CastingForegroundService : Service() {
     fun castCandidate(candidate: VideoCandidate, targetDeviceId: String? = null, onResult: ((Boolean, String?) -> Unit)? = null) {
         scope.launch {
             try {
+                renewLocks()
+
                 // 1. Create Stream Session in local proxy
                 val session = streamManager.createSession(
                     url = candidate.url,
@@ -212,7 +254,7 @@ class CastingForegroundService : Service() {
                         title = candidate.title ?: "BigEyes Video"
                     )
                     if (okSet) {
-                        val okPlay = dlnaManager.controller.play(ctrlUrl)
+                        dlnaManager.controller.play(ctrlUrl)
                         currentStatus = CastStatus(
                             hasActiveStream = true,
                             streamId = session.streamId,
@@ -243,6 +285,7 @@ class CastingForegroundService : Service() {
 
     fun stopCasting() {
         scope.launch {
+            idleShutdownJob?.cancel()
             dlnaManager.getSelectedDevice()?.avTransportControlUrl?.let { ctrlUrl ->
                 try {
                     dlnaManager.controller.stop(ctrlUrl)
@@ -256,6 +299,7 @@ class CastingForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        idleShutdownJob?.cancel()
         stopProxyServer()
         dlnaManager.release()
         streamManager.release()
