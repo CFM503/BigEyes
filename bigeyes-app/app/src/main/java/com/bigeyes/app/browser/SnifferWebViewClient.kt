@@ -26,7 +26,7 @@ class SnifferWebViewClient(
         view: WebView?,
         request: WebResourceRequest?
     ): WebResourceResponse? {
-        if (request == null) return super.shouldInterceptRequest(view, request)
+        if (request == null) return null
 
         val uri = request.url
         val urlString = uri.toString()

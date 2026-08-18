@@ -1,17 +1,17 @@
 package com.bigeyes.app.dlna
 
-import android.util.Log
-import android.util.Xml
 import com.bigeyes.app.model.DlnaDevice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.xmlpull.v1.XmlPullParser
+import org.w3c.dom.Element
+import org.xml.sax.InputSource
 import java.io.StringReader
 import java.net.*
 import java.util.Collections
 import java.util.concurrent.TimeUnit
+import javax.xml.parsers.DocumentBuilderFactory
 
 class SsdpScanner {
 
@@ -23,6 +23,89 @@ class SsdpScanner {
             "urn:schemas-upnp-org:device:MediaRenderer:1",
             "urn:schemas-upnp-org:service:AVTransport:1"
         )
+
+        fun parseDeviceXml(xmlText: String, locationUrl: String): DlnaDevice? {
+            return try {
+                val parsedUrl = URI(locationUrl)
+                val ip = parsedUrl.host ?: ""
+
+                val factory = DocumentBuilderFactory.newInstance()
+                factory.isNamespaceAware = false
+                val builder = factory.newDocumentBuilder()
+                val doc = builder.parse(InputSource(StringReader(xmlText)))
+                doc.documentElement.normalize()
+
+                fun getFirstTagText(parent: Element, tagName: String): String? {
+                    val list = parent.getElementsByTagName(tagName)
+                    if (list.length > 0) {
+                        return list.item(0).textContent?.trim()
+                    }
+                    val children = parent.childNodes
+                    for (i in 0 until children.length) {
+                        val node = children.item(i)
+                        if (node is Element && node.tagName.equals(tagName, ignoreCase = true)) {
+                            return node.textContent?.trim()
+                        }
+                    }
+                    return null
+                }
+
+                fun getRootTagText(tagName: String): String? {
+                    val list = doc.getElementsByTagName(tagName)
+                    if (list.length > 0) {
+                        return list.item(0).textContent?.trim()
+                    }
+                    val all = doc.getElementsByTagName("*")
+                    for (i in 0 until all.length) {
+                        val node = all.item(i) as? Element ?: continue
+                        if (node.tagName.equals(tagName, ignoreCase = true)) {
+                            return node.textContent?.trim()
+                        }
+                    }
+                    return null
+                }
+
+                val friendlyName = getRootTagText("friendlyName") ?: "Unknown TV"
+                var udn = getRootTagText("UDN") ?: ""
+                if (udn.isEmpty()) udn = "uuid-$ip"
+
+                var avControlUrl: String? = null
+                var renderingControlUrl: String? = null
+
+                val serviceNodes = doc.getElementsByTagName("service")
+                for (i in 0 until serviceNodes.length) {
+                    val elem = serviceNodes.item(i) as? Element ?: continue
+                    val serviceType = getFirstTagText(elem, "serviceType") ?: ""
+                    val controlUrl = getFirstTagText(elem, "controlURL") ?: ""
+
+                    if (serviceType.contains("AVTransport", ignoreCase = true) && controlUrl.isNotEmpty()) {
+                        avControlUrl = resolveUrl(locationUrl, controlUrl)
+                    } else if (serviceType.contains("RenderingControl", ignoreCase = true) && controlUrl.isNotEmpty()) {
+                        renderingControlUrl = resolveUrl(locationUrl, controlUrl)
+                    }
+                }
+
+                DlnaDevice(
+                    id = udn,
+                    name = friendlyName,
+                    ip = ip,
+                    locationUrl = locationUrl,
+                    avTransportControlUrl = avControlUrl,
+                    renderingControlUrl = renderingControlUrl
+                )
+            } catch (e: Exception) {
+                System.err.println("Error parsing XML from $locationUrl: ${e.message}")
+                null
+            }
+        }
+
+        private fun resolveUrl(base: String, relative: String): String {
+            return try {
+                URI(base).resolve(relative).toString()
+            } catch (_: Exception) {
+                relative
+            }
+        }
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -54,7 +137,7 @@ class SsdpScanner {
                 try {
                     socket.send(packet)
                 } catch (e: Exception) {
-                    Log.w(TAG, "SSDP send error for $st: ${e.message}")
+                    System.err.println("SSDP send error for $st: ${e.message}")
                 }
             }
 
@@ -69,12 +152,11 @@ class SsdpScanner {
                 } catch (_: SocketTimeoutException) {
                     // loop until overall timeout
                 } catch (e: Exception) {
-                    Log.d(TAG, "SSDP recv finished or interrupted: ${e.message}")
                     break
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "SSDP socket error: ${e.message}")
+            System.err.println("SSDP socket error: ${e.message}")
         } finally {
             try {
                 socket?.close()
@@ -113,82 +195,7 @@ class SsdpScanner {
                 } else null
             }
         } catch (e: Exception) {
-            Log.d(TAG, "Failed fetching device info from $locationUrl: ${e.message}")
             null
-        }
-    }
-
-    private fun parseDeviceXml(xmlText: String, locationUrl: String): DlnaDevice? {
-        return try {
-            val parsedUrl = URI(locationUrl)
-            val ip = parsedUrl.host ?: ""
-
-            var friendlyName = "Unknown TV"
-            var udn = ""
-            var avControlUrl: String? = null
-            var renderingControlUrl: String? = null
-
-            val parser = Xml.newPullParser()
-            parser.setInput(StringReader(xmlText))
-
-            var eventType = parser.eventType
-            var inService = false
-            var currentServiceType = ""
-            var currentControlUrl = ""
-
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                val tag = parser.name?.lowercase() ?: ""
-                when (eventType) {
-                    XmlPullParser.START_TAG -> {
-                        if (tag == "service") {
-                            inService = true
-                            currentServiceType = ""
-                            currentControlUrl = ""
-                        } else if (tag == "friendlyname" && friendlyName == "Unknown TV") {
-                            friendlyName = parser.nextText().trim()
-                        } else if (tag == "udn" && udn.isEmpty()) {
-                            udn = parser.nextText().trim()
-                        } else if (inService && tag == "servicetype") {
-                            currentServiceType = parser.nextText().trim()
-                        } else if (inService && tag == "controlurl") {
-                            currentControlUrl = parser.nextText().trim()
-                        }
-                    }
-                    XmlPullParser.END_TAG -> {
-                        if (tag == "service") {
-                            inService = false
-                            if (currentServiceType.contains("AVTransport") && currentControlUrl.isNotEmpty()) {
-                                avControlUrl = resolveUrl(locationUrl, currentControlUrl)
-                            } else if (currentServiceType.contains("RenderingControl") && currentControlUrl.isNotEmpty()) {
-                                renderingControlUrl = resolveUrl(locationUrl, currentControlUrl)
-                            }
-                        }
-                    }
-                }
-                eventType = parser.next()
-            }
-
-            if (udn.isEmpty()) udn = "uuid-$ip"
-
-            DlnaDevice(
-                id = udn,
-                name = friendlyName,
-                ip = ip,
-                locationUrl = locationUrl,
-                avTransportControlUrl = avControlUrl,
-                renderingControlUrl = renderingControlUrl
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Error parsing XML from $locationUrl: ${e.message}")
-            null
-        }
-    }
-
-    private fun resolveUrl(base: String, relative: String): String {
-        return try {
-            URI(base).resolve(relative).toString()
-        } catch (_: Exception) {
-            relative
         }
     }
 }
