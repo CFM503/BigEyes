@@ -2,17 +2,28 @@ package com.bigeyes.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.webkit.ConsoleMessage
+import android.webkit.JsPromptResult
+import android.webkit.JsResult
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -21,9 +32,15 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.bigeyes.app.browser.BlobDownloadBridge
 import com.bigeyes.app.browser.CandidateManager
 import com.bigeyes.app.browser.SnifferWebViewClient
+import com.bigeyes.app.browser.WebViewDownloadHelper
 import com.bigeyes.app.dlna.DlnaDeviceManager
 import com.bigeyes.app.model.VideoCandidate
 import com.bigeyes.app.service.CastingForegroundService
@@ -32,10 +49,15 @@ import com.bigeyes.app.ui.DeviceSelectDialog
 import com.bigeyes.app.ui.PlaybackControlBar
 import com.bigeyes.app.ui.SettingsActivity
 import com.bigeyes.app.updater.UpdateManager
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
 
     private lateinit var webView: WebView
     private lateinit var etUrl: EditText
@@ -45,11 +67,29 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBadgeCount: TextView
     private lateinit var btnSettings: ImageButton
     private lateinit var progressBar: ProgressBar
+    private lateinit var topBar: View
     private lateinit var containerControl: View
+    private lateinit var fullscreenContainer: FrameLayout
     private lateinit var playbackControlBar: PlaybackControlBar
 
     private var fallbackDlnaManager: DlnaDeviceManager? = null
     private var currentCandidates: List<VideoCandidate> = emptyList()
+
+    // Fullscreen handling
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var insetsController: WindowInsetsControllerCompat? = null
+
+    // File Chooser handling (<input type="file"> / 导入)
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uris = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+        filePathCallback?.onReceiveValue(uris)
+        filePathCallback = null
+    }
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -59,7 +99,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        insetsController = WindowCompat.getInsetsController(window, window.decorView)
+
         initViews()
+        setupWindowInsets()
         setupWebView()
         setupListeners()
         setupBackNavigation()
@@ -86,6 +129,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun initViews() {
         webView = findViewById(R.id.web_view)
+        topBar = findViewById(R.id.top_bar)
         etUrl = findViewById(R.id.et_url)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
@@ -94,8 +138,35 @@ class MainActivity : AppCompatActivity() {
         btnSettings = findViewById(R.id.btn_settings)
         progressBar = findViewById(R.id.progress_bar)
         containerControl = findViewById(R.id.container_playback_control)
+        fullscreenContainer = findViewById(R.id.fullscreen_custom_content)
 
         playbackControlBar = PlaybackControlBar(containerControl, lifecycleScope)
+    }
+
+    private fun setupWindowInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
+            if (customView == null) {
+                val statusInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
+                val navInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+
+                topBar.setPadding(
+                    topBar.paddingLeft,
+                    statusInsets.top,
+                    topBar.paddingRight,
+                    topBar.paddingBottom
+                )
+                containerControl.setPadding(
+                    containerControl.paddingLeft,
+                    containerControl.paddingTop,
+                    containerControl.paddingRight,
+                    navInsets.bottom
+                )
+            } else {
+                topBar.setPadding(topBar.paddingLeft, 0, topBar.paddingRight, topBar.paddingBottom)
+                containerControl.setPadding(containerControl.paddingLeft, containerControl.paddingTop, containerControl.paddingRight, 0)
+            }
+            insets
+        }
     }
 
     private fun startCastingService() {
@@ -117,19 +188,91 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun setupWebView() {
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
+        settings.allowFileAccess = true
+        settings.allowContentAccess = true
+        settings.javaScriptCanOpenWindowsAutomatically = true
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         settings.mediaPlaybackRequiresUserGesture = false
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.setSupportMultipleWindows(false) // Blocks popup ads
 
-        webView.webViewClient = SnifferWebViewClient()
+        // Prevent unwanted whole-page pinch-zoom from breaking SPA layout & touch coordinates
+        settings.setSupportZoom(false)
+        settings.builtInZoomControls = false
+        settings.displayZoomControls = false
+        settings.cacheMode = WebSettings.LOAD_DEFAULT
+
+        // Register Blob Download JavascriptInterface bridge
+        val blobBridge = BlobDownloadBridge(this)
+        webView.addJavascriptInterface(blobBridge, BlobDownloadBridge.JAVASCRIPT_NAME)
+
+        // Download Listener for Blob, Data URI, and HTTP/HTTPS files
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
+            Log.d(TAG, "Download requested: $url, mime: $mimetype")
+            when {
+                url.startsWith("blob:", ignoreCase = true) -> {
+                    WebViewDownloadHelper.injectBlobExtractor(
+                        webView = webView,
+                        blobUrl = url,
+                        suggestedFilename = "vodplus_export.json",
+                        mimeType = mimetype
+                    )
+                }
+                url.startsWith("data:", ignoreCase = true) -> {
+                    val parsed = WebViewDownloadHelper.parseDataUri(url)
+                    if (parsed != null) {
+                        val cleanName = WebViewDownloadHelper.sanitizeFilename(
+                            null,
+                            parsed.suggestedExtension
+                        )
+                        val uri = WebViewDownloadHelper.saveBytesToPublicDownloads(
+                            this@MainActivity,
+                            parsed.data,
+                            cleanName,
+                            parsed.mimeType
+                        )
+                        if (uri != null) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.download_completed, cleanName),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.download_failed, "保存文件失败"),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+                else -> {
+                    WebViewDownloadHelper.downloadHttpUrl(
+                        context = this@MainActivity,
+                        url = url,
+                        userAgent = userAgent,
+                        contentDisposition = contentDisposition,
+                        mimeType = mimetype
+                    )
+                }
+            }
+        }
+
+        webView.webViewClient = SnifferWebViewClient(
+            onPageTitleChanged = { title ->
+                title?.let { etUrl.setHint(it) }
+            },
+            onPageLoadingChanged = { isLoading ->
+                progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+            }
+        )
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -140,6 +283,151 @@ class MainActivity : AppCompatActivity() {
                     progressBar.visibility = View.GONE
                 }
             }
+
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                if (customView != null || view == null) {
+                    callback?.onCustomViewHidden()
+                    return
+                }
+
+                customView = view
+                customViewCallback = callback
+
+                // Hide normal browser UI
+                topBar.visibility = View.GONE
+                progressBar.visibility = View.GONE
+                webView.visibility = View.GONE
+                containerControl.visibility = View.GONE
+
+                // Attach custom view to fullscreen container
+                fullscreenContainer.removeAllViews()
+                fullscreenContainer.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                )
+                fullscreenContainer.visibility = View.VISIBLE
+
+                // Immersive full screen: hide status bar and navigation bar
+                insetsController?.let { controller ->
+                    controller.hide(WindowInsetsCompat.Type.systemBars())
+                    controller.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+
+                // Switch orientation to landscape for optimal video viewing
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                Log.d(TAG, "Entered fullscreen custom view")
+            }
+
+            override fun onHideCustomView() {
+                if (customView == null) return
+
+                // Detach custom view
+                fullscreenContainer.removeView(customView)
+                fullscreenContainer.visibility = View.GONE
+                customView = null
+
+                // Restore browser UI
+                topBar.visibility = View.VISIBLE
+                webView.visibility = View.VISIBLE
+                if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) {
+                    containerControl.visibility = View.VISIBLE
+                }
+
+                // Restore system bars
+                insetsController?.show(WindowInsetsCompat.Type.systemBars())
+
+                // Restore portrait / unspecified orientation
+                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+                customViewCallback?.onCustomViewHidden()
+                customViewCallback = null
+                Log.d(TAG, "Exited fullscreen custom view")
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = filePathCallback
+
+                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "*/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+
+                try {
+                    fileChooserLauncher.launch(
+                        Intent.createChooser(intent, getString(R.string.file_chooser_title))
+                    )
+                    return true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed launching file chooser: ${e.message}", e)
+                    this@MainActivity.filePathCallback?.onReceiveValue(null)
+                    this@MainActivity.filePathCallback = null
+                    return false
+                }
+            }
+
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                Log.d(
+                    "BigEyesWebConsole",
+                    "${consoleMessage?.message()} -- [Line ${consoleMessage?.lineNumber()}] of ${consoleMessage?.sourceId()}"
+                )
+                return true
+            }
+
+            override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle("提示")
+                    .setMessage(message ?: "")
+                    .setPositiveButton("确定") { _, _ -> result?.confirm() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
+
+            override fun onJsConfirm(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle("提示")
+                    .setMessage(message ?: "")
+                    .setPositiveButton("确定") { _, _ -> result?.confirm() }
+                    .setNegativeButton("取消") { _, _ -> result?.cancel() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
+
+            override fun onJsPrompt(view: WebView?, url: String?, message: String?, defaultValue: String?, result: JsPromptResult?): Boolean {
+                val input = EditText(this@MainActivity).apply {
+                    setText(defaultValue)
+                }
+                MaterialAlertDialogBuilder(this@MainActivity)
+                    .setTitle(message ?: "输入")
+                    .setView(input)
+                    .setPositiveButton("确定") { _, _ -> result?.confirm(input.text.toString()) }
+                    .setNegativeButton("取消") { _, _ -> result?.cancel() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
+        }
+
+        // Seamless touch transfer: clear URL bar focus when tapping webpage
+        webView.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_DOWN) {
+                if (etUrl.hasFocus()) {
+                    etUrl.clearFocus()
+                    val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                    imm?.hideSoftInputFromWindow(etUrl.windowToken, 0)
+                }
+            }
+            false // Return false so MotionEvent is delivered seamlessly to DOM
         }
     }
 
@@ -163,6 +451,9 @@ class MainActivity : AppCompatActivity() {
                     input = "https://$input"
                 }
                 webView.loadUrl(input)
+                etUrl.clearFocus()
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                imm?.hideSoftInputFromWindow(etUrl.windowToken, 0)
                 true
             } else {
                 false
@@ -248,9 +539,14 @@ class MainActivity : AppCompatActivity() {
     private fun setupBackNavigation() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
+                if (customView != null) {
+                    // Step 1: Exit HTML5 Fullscreen custom view if active
+                    webView.webChromeClient?.onHideCustomView()
+                } else if (webView.canGoBack()) {
+                    // Step 2: Navigate back in WebView history
                     webView.goBack()
                 } else {
+                    // Step 3: Exit App
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
                 }
@@ -260,6 +556,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        filePathCallback?.onReceiveValue(null)
+        filePathCallback = null
         fallbackDlnaManager?.release()
         webView.destroy()
     }

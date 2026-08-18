@@ -7,4 +7,8 @@
     <string name="cast_failed">投屏失败</string>
     <string name="select_candidate_title">发现多个播放源，请选择：</string>
     <string name="select_device_title">选择投屏电视设备：</string>
+    <string name="file_chooser_title">选择导入文件</string>
+    <string name="download_started">开始下载文件：%1$s</string>
+    <string name="download_completed">文件已保存至下载目录：%1$s</string>
+    <string name="download_failed">文件保存失败：%1$s</string>
 </resources>

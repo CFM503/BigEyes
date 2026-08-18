@@ -30,16 +30,16 @@ jobs:
       - name: Grant Execute Permission to Gradle
         run: chmod +x bigeyes-app/gradlew
 
-      - name: Build Debug APK
+      - name: Build Release APK
         run: |
           cd bigeyes-app
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleRelease --stacktrace
 
       - name: Prepare Release Asset
         run: |
-          TAG_NAME="${GITHUB_REF_NAME:-v2.0.2}"
+          TAG_NAME="${GITHUB_REF_NAME:-v2.0.3}"
           mkdir -p release-artifacts
-          cp bigeyes-app/app/build/outputs/apk/debug/app-debug.apk release-artifacts/BigEyes-${TAG_NAME}.apk
+          cp bigeyes-app/app/build/outputs/apk/release/app-release.apk release-artifacts/BigEyes-${TAG_NAME}.apk
           echo "Release APK generated at release-artifacts/BigEyes-${TAG_NAME}.apk"
 
       - name: Publish GitHub Release

@@ -1,5 +1,26 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.4] - 2026-08-19
+
+### 📱 WebView 移动端触控兼容性全面审计与签名固化
+* **HTML5 视频沉浸式横屏全屏**：
+  * 实现 `WebChromeClient.onShowCustomView` 与 `onHideCustomView`，配合 `fullscreen_custom_content` 挂载容器与 `WindowInsetsControllerCompat`，支持横屏全屏播放、自动隐藏系统状态栏与导航栏、返回键优雅退出全屏。
+* **资源管理文件导入与选择器**：
+  * 实现 `WebChromeClient.onShowFileChooser` 与 SAF 文件选择器，支持选择 `.json`/`.txt` 等任意规则/订阅配置文件，妥善处理取消与回调生命周期。
+* **资源管理文件导出与 Blob 下载桥接**：
+  * 注册 `DownloadListener`，构建 `BlobDownloadBridge` 原生 JavaScript 桥接与 `WebViewDownloadHelper`，将前端堆内存中的 Blob 与 Data URL 自动提取并保存至系统 Downloads 目录。
+* **触控穿透、输入焦点与防误缩放**：
+  * 轻触 WebView 时自动清除地址栏焦点并收起软键盘，无阻碍透传 `MotionEvent` 至 DOM；
+  * 锁定移动视口，禁用整页 Pinch Zoom，彻底防止播放器手势操作误触发页面缩放。
+* **JS 弹窗与控制台调试支持**：
+  * 原生 Material 对话框承接网页 `alert`/`confirm`/`prompt`；
+  * 增加 Web 控制台 Logcat 调试输出。
+* **统一固化签名证书与在线更新修复**：
+  * 创建固定项目密钥库 `bigeyes-release.jks`，统一 `release` 和 `debug` 签名配置；
+  * 修复 GitHub Actions Release 工作流，使用固定密钥编译发布，彻底解决在线更新时出现的“已安装了签名冲突的应用”问题。
+
+---
+
 ## [v2.0.3] - 2026-08-18
 
 ### 🌐 默认导航站更新与版本发布

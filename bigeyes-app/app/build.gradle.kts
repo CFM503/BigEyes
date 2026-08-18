@@ -11,19 +11,38 @@ android {
         applicationId = "com.bigeyes.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 5
-        versionName = "2.0.3"
+        versionCode = 6
+        versionName = "2.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystoreFile = file("keystore/bigeyes-release.jks")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "bigeyes123"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "bigeyes"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: "bigeyes123"
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        debug {
+            val keystoreFile = file("keystore/bigeyes-release.jks")
+            if (keystoreFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
