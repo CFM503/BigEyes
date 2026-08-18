@@ -1,0 +1,292 @@
+package com.bigeyes.app.browser
+
+import android.net.Uri
+import android.util.Log
+import android.webkit.WebView
+import java.net.URLDecoder
+
+object VideoSnifferHelper {
+
+    private const val TAG = "VideoSnifferHelper"
+
+    // Common media extensions
+    private val VIDEO_EXTENSIONS = listOf(
+        ".m3u8", ".mp4", ".flv", ".f4v", ".webm",
+        ".ts", ".m4s", ".m3u", ".mov", ".mkv", ".avi"
+    )
+
+    // Non-media static asset extensions to ignore immediately
+    private val IGNORED_EXTENSIONS = listOf(
+        ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+        ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map",
+        ".json", ".xml", ".html", ".htm"
+    )
+
+    fun isVideoStreamUrl(rawUrl: String): Boolean {
+        if (rawUrl.isBlank()) return false
+        val lower = rawUrl.lowercase()
+
+        // 1. Filter out obvious static assets
+        val pathOnly = try {
+            Uri.parse(rawUrl).path?.lowercase() ?: lower
+        } catch (_: Exception) {
+            lower
+        }
+
+        for (ext in IGNORED_EXTENSIONS) {
+            if (pathOnly.endsWith(ext)) {
+                return false
+            }
+        }
+
+        // 2. Direct video extension match in path or query
+        for (ext in VIDEO_EXTENSIONS) {
+            if (lower.contains(ext)) {
+                return true
+            }
+        }
+
+        // 3. Common streaming path signatures
+        if (lower.contains("/hls/") || lower.contains("/vod/") || lower.contains("/m3u8/") ||
+            lower.contains("playlist") || lower.contains("manifest") || lower.contains("live.m3u8") ||
+            lower.contains("/video/") || lower.contains("type=m3u8") || lower.contains("format=hls")) {
+            return true
+        }
+
+        // 4. URL-encoded video URLs inside query parameters (e.g. ?url=https%3A%2F%2F...m3u8)
+        if (lower.contains("url=http") || lower.contains("v=http") || lower.contains("src=http") || lower.contains("link=http")) {
+            val decoded = try {
+                URLDecoder.decode(rawUrl, "UTF-8").lowercase()
+            } catch (_: Exception) {
+                ""
+            }
+            for (ext in VIDEO_EXTENSIONS) {
+                if (decoded.contains(ext)) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * Extract inner video URL if nested inside player parameters, e.g. player.html?url=https://.../index.m3u8
+     */
+    fun extractDirectVideoUrl(rawUrl: String): String {
+        try {
+            val uri = Uri.parse(rawUrl)
+            val queryParams = listOf("url", "v", "src", "link", "video", "play", "file")
+            for (param in queryParams) {
+                val value = uri.getQueryParameter(param)
+                if (!value.isNullOrBlank() && (value.startsWith("http://") || value.startsWith("https://"))) {
+                    if (isVideoStreamUrl(value)) {
+                        return value
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "extractDirectVideoUrl error: ${e.message}")
+        }
+        return rawUrl
+    }
+
+    /**
+     * JavaScript code to hook DOM Video Elements, Hls.js, Artplayer, DPlayer, and network requests.
+     */
+    fun getInjectionScript(): String {
+        return """
+            (function() {
+                if (window.__bigeyes_sniffer_installed__) return;
+                window.__bigeyes_sniffer_installed__ = true;
+
+                function reportVideo(url, title) {
+                    if (!url || typeof url !== 'string') return;
+                    if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('javascript:')) return;
+                    if (url.startsWith('//')) url = window.location.protocol + url;
+                    if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+
+                    var cleanTitle = title || document.title || 'Video Stream';
+                    var ref = window.location.href;
+
+                    if (window.BigEyesSnifferBridge && window.BigEyesSnifferBridge.onVideoDetected) {
+                        window.BigEyesSnifferBridge.onVideoDetected(url, cleanTitle, ref);
+                    }
+                }
+
+                function isVideoUrl(u) {
+                    if (!u || typeof u !== 'string') return false;
+                    var l = u.toLowerCase();
+                    return l.indexOf('.m3u8') !== -1 || l.indexOf('.mp4') !== -1 ||
+                           l.indexOf('.flv') !== -1 || l.indexOf('/hls/') !== -1 ||
+                           l.indexOf('playlist') !== -1 || l.indexOf('url=http') !== -1;
+                }
+
+                // 1. Hook HTMLMediaElement & HTMLVideoElement
+                try {
+                    var origPlay = HTMLMediaElement.prototype.play;
+                    HTMLMediaElement.prototype.play = function() {
+                        if (this.src && isVideoUrl(this.src)) {
+                            reportVideo(this.src, document.title);
+                        } else if (this.currentSrc && isVideoUrl(this.currentSrc)) {
+                            reportVideo(this.currentSrc, document.title);
+                        }
+                        return origPlay.apply(this, arguments);
+                    };
+
+                    var origSrcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+                    if (origSrcDesc && origSrcDesc.set) {
+                        var origSrcSet = origSrcDesc.set;
+                        Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+                            set: function(val) {
+                                if (isVideoUrl(val)) {
+                                    reportVideo(val, document.title);
+                                }
+                                return origSrcSet.apply(this, arguments);
+                            },
+                            get: origSrcDesc.get,
+                            configurable: true
+                        });
+                    }
+                } catch(e) {}
+
+                // 2. Hook Hls.js loadSource
+                try {
+                    if (window.Hls && window.Hls.prototype && window.Hls.prototype.loadSource) {
+                        var origLoad = window.Hls.prototype.loadSource;
+                        window.Hls.prototype.loadSource = function(url) {
+                            reportVideo(url, document.title);
+                            return origLoad.apply(this, arguments);
+                        };
+                    }
+                } catch(e) {}
+
+                // 3. Hook window.fetch
+                try {
+                    var origFetch = window.fetch;
+                    window.fetch = function(input, init) {
+                        var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
+                        if (isVideoUrl(url)) {
+                            reportVideo(url, document.title);
+                        }
+                        return origFetch.apply(this, arguments);
+                    };
+                } catch(e) {}
+
+                // 4. Hook XMLHttpRequest
+                try {
+                    var origOpen = XMLHttpRequest.prototype.open;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        if (isVideoUrl(url)) {
+                            reportVideo(url, document.title);
+                        }
+                        return origOpen.apply(this, arguments);
+                    };
+                } catch(e) {}
+
+                // 5. Periodic & MutationObserver Scan
+                function scanNow() {
+                    var videos = document.querySelectorAll('video');
+                    for (var i = 0; i < videos.length; i++) {
+                        var v = videos[i];
+                        if (v.src && isVideoUrl(v.src)) reportVideo(v.src, document.title);
+                        if (v.currentSrc && isVideoUrl(v.currentSrc)) reportVideo(v.currentSrc, document.title);
+                        var sources = v.querySelectorAll('source');
+                        for (var j = 0; j < sources.length; j++) {
+                            if (sources[j].src && isVideoUrl(sources[j].src)) reportVideo(sources[j].src, document.title);
+                        }
+                    }
+
+                    if (window.art && window.art.url && isVideoUrl(window.art.url)) reportVideo(window.art.url, document.title);
+                    if (window.artplayer && window.artplayer.url && isVideoUrl(window.artplayer.url)) reportVideo(window.artplayer.url, document.title);
+                    if (window.dp && window.dp.video && window.dp.video.src && isVideoUrl(window.dp.video.src)) reportVideo(window.dp.video.src, document.title);
+                    if (window.hls && window.hls.url && isVideoUrl(window.hls.url)) reportVideo(window.hls.url, document.title);
+                    if (window.player && window.player.src && isVideoUrl(window.player.src)) reportVideo(window.player.src, document.title);
+                }
+
+                scanNow();
+                setInterval(scanNow, 1500);
+
+                var observer = new MutationObserver(function() {
+                    scanNow();
+                });
+                if (document.body) {
+                    observer.observe(document.body, { childList: true, subtree: true });
+                }
+            })();
+        """.trimIndent()
+    }
+
+    /**
+     * Active scanner invoked on demand (e.g. when user clicks "投屏" button).
+     */
+    fun scanVideoInPage(webView: WebView, callback: (List<String>) -> Unit) {
+        val script = """
+            (function() {
+                var list = [];
+                function add(u) {
+                    if (!u || typeof u !== 'string') return;
+                    if (u.startsWith('blob:') || u.startsWith('data:') || u.startsWith('javascript:')) return;
+                    if (u.startsWith('//')) u = window.location.protocol + u;
+                    if (!u.startsWith('http://') && !u.startsWith('https://')) return;
+                    if (list.indexOf(u) === -1) list.push(u);
+                }
+
+                // Scan all videos
+                var videos = document.querySelectorAll('video');
+                videos.forEach(function(v) {
+                    if (v.src) add(v.src);
+                    if (v.currentSrc) add(v.currentSrc);
+                    v.querySelectorAll('source').forEach(function(s) { if (s.src) add(s.src); });
+                });
+
+                // Scan JS player instances
+                if (window.art && window.art.url) add(window.art.url);
+                if (window.artplayer && window.artplayer.url) add(window.artplayer.url);
+                if (window.dp && window.dp.video && window.dp.video.src) add(window.dp.video.src);
+                if (window.hls && window.hls.url) add(window.hls.url);
+                if (window.player && window.player.src) add(window.player.src);
+
+                // Scan iframes
+                var iframes = document.querySelectorAll('iframe');
+                iframes.forEach(function(f) {
+                    if (f.src) add(f.src);
+                });
+
+                // Scan HTML text for m3u8 and mp4 patterns
+                var html = document.documentElement.innerHTML;
+                var regex = /https?:\/\/[^\s"'<>]+\.(?:m3u8|mp4)[^\s"'<>]*/gi;
+                var matches = html.match(regex);
+                if (matches) {
+                    matches.forEach(function(m) { add(m); });
+                }
+
+                return JSON.stringify(list);
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(script) { jsonResult ->
+            val resultList = mutableListOf<String>()
+            try {
+                if (!jsonResult.isNullOrBlank() && jsonResult != "null" && jsonResult != "\"[]\"") {
+                    val unquoted = if (jsonResult.startsWith("\"") && jsonResult.endsWith("\"")) {
+                        // Unescape JSON string
+                        org.json.JSONTokener(jsonResult).nextValue().toString()
+                    } else {
+                        jsonResult
+                    }
+                    val jsonArray = org.json.JSONArray(unquoted)
+                    for (i in 0 until jsonArray.length()) {
+                        val item = jsonArray.optString(i)
+                        if (isVideoStreamUrl(item)) {
+                            resultList.add(extractDirectVideoUrl(item))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "scanVideoInPage parse error: ${e.message}")
+            }
+            callback(resultList.distinct())
+        }
+    }
+}

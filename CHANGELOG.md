@@ -1,5 +1,20 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.7] - 2026-08-19
+
+### 🎯 深度视频嗅探重构 (双引擎 + 主动 DOM 扫描)
+* **实时 JS 媒体播放器 Hook 注入 (`SnifferBridge`)**：
+  * 在页面加载时注入轻量嗅探脚本，拦截 `HTMLMediaElement.prototype.play`、`<video>.src` 属性变化、`Hls.js.loadSource`、`window.fetch` 以及 `XMLHttpRequest`；
+  * 完美适配 Artplayer、DPlayer、Hls.js、西瓜播放器等现代 SPA 播放组件，视频开播即自动秒级捕获真实流地址并点亮投屏按钮；
+* **点击投屏时“按需主动 DOM 扫描”兜底**：
+  * 当点击“投屏”按钮但候选池为空时，触发瞬时深度 DOM 扫描（遍历 `<video>`、`<source>`、`<iframe>`、播放器全局实例及页面正则提取）；
+  * 彻底解决在各类影视站（如 VODPlus、非凡资源、量子资源）播放时提示“未嗅探到可投屏视频”的问题；
+* **扩展流媒体特征识别与嵌套 URL 解包**：
+  * 扩展支持 `.m3u8`、`.mp4`、`.flv`、`.webm`、`.ts` 等全媒体流格式；
+  * 自动解包 `player.html?url=https%3A%2F%2F...` 嵌套播放器 URL，精准直连源流。
+
+---
+
 ## [v2.0.6] - 2026-08-19
 
 ### 🧹 架构精简与废弃模块清理

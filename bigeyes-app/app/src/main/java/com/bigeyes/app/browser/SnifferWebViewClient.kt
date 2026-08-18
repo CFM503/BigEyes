@@ -31,19 +31,20 @@ class SnifferWebViewClient(
         if (request == null) return null
 
         val uri = request.url
-        val urlString = uri.toString()
+        val rawUrl = uri.toString()
+        val directUrl = VideoSnifferHelper.extractDirectVideoUrl(rawUrl)
 
-        if (isM3U8Stream(urlString)) {
-            Log.d(TAG, "Sniffed candidate stream: $urlString")
+        if (VideoSnifferHelper.isVideoStreamUrl(directUrl)) {
+            Log.d(TAG, "Sniffed candidate stream: $directUrl (raw: $rawUrl)")
             val headers = request.requestHeaders ?: emptyMap()
             val referer = headers["Referer"] ?: headers["referer"] ?: view?.url
             val userAgent = headers["User-Agent"] ?: headers["user-agent"] ?: view?.settings?.userAgentString
-            val cookie = headers["Cookie"] ?: headers["cookie"] ?: CookieManager.getInstance().getCookie(urlString)
+            val cookie = headers["Cookie"] ?: headers["cookie"] ?: CookieManager.getInstance().getCookie(directUrl)
 
             mainHandler.post {
-                val pageTitle = view?.title ?: uri.lastPathSegment
+                val pageTitle = view?.title ?: uri.lastPathSegment ?: "在线视频"
                 val candidate = VideoCandidate(
-                    url = urlString,
+                    url = directUrl,
                     referer = referer,
                     userAgent = userAgent,
                     cookie = cookie,
@@ -58,27 +59,30 @@ class SnifferWebViewClient(
     }
 
     fun isM3U8Stream(url: String): Boolean {
-        val lower = url.lowercase()
-        // Standard .m3u8 in path or query
-        if (lower.contains(".m3u8")) {
-            return true
-        }
-        // Common HLS streaming patterns
-        if (lower.contains("/hls/") && (lower.endsWith(".m3u8") || lower.contains("playlist"))) {
-            return true
-        }
-        return false
+        return VideoSnifferHelper.isVideoStreamUrl(url)
     }
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         onPageLoadingChanged?.invoke(true)
+        injectSnifferScript(view)
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
         onPageLoadingChanged?.invoke(false)
         onPageTitleChanged?.invoke(view?.title)
+        injectSnifferScript(view)
+    }
+
+    private fun injectSnifferScript(view: WebView?) {
+        view?.post {
+            try {
+                view.evaluateJavascript(VideoSnifferHelper.getInjectionScript(), null)
+            } catch (e: Exception) {
+                Log.d(TAG, "evaluateJavascript injection error: ${e.message}")
+            }
+        }
     }
 
     override fun onReceivedError(

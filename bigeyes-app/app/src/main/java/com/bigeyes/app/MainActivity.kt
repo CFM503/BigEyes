@@ -213,6 +213,13 @@ class MainActivity : AppCompatActivity() {
         val blobBridge = BlobDownloadBridge(this)
         webView.addJavascriptInterface(blobBridge, BlobDownloadBridge.JAVASCRIPT_NAME)
 
+        // Register Real-time Video Sniffer JavascriptInterface bridge
+        val snifferBridge = SnifferBridge(
+            getCurrentUserAgent = { webView.settings.userAgentString },
+            getCurrentCookie = { url -> CookieManager.getInstance().getCookie(url) }
+        )
+        webView.addJavascriptInterface(snifferBridge, SnifferBridge.JAVASCRIPT_NAME)
+
         // Download Listener for Blob, Data URI, and HTTP/HTTPS files
         webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             Log.d(TAG, "Download requested: $url, mime: $mimetype")
@@ -481,15 +488,45 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleCastButtonClick() {
-        if (currentCandidates.isEmpty()) {
-            Toast.makeText(this, R.string.no_candidates, Toast.LENGTH_SHORT).show()
+        if (currentCandidates.isNotEmpty()) {
+            showCandidatesOrCast(currentCandidates)
             return
         }
 
-        if (currentCandidates.size == 1) {
-            pickDeviceAndCast(currentCandidates.first())
+        // Active video scan in webpage DOM on demand
+        Toast.makeText(this, "正在主动嗅探网页视频...", Toast.LENGTH_SHORT).show()
+        VideoSnifferHelper.scanVideoInPage(webView) { scannedUrls ->
+            if (scannedUrls.isNotEmpty()) {
+                val pageTitle = webView.title ?: "在线视频"
+                val userAgent = webView.settings.userAgentString
+                val ref = webView.url
+                for (url in scannedUrls) {
+                    val candidate = VideoCandidate(
+                        url = url,
+                        referer = ref,
+                        userAgent = userAgent,
+                        cookie = CookieManager.getInstance().getCookie(url),
+                        title = pageTitle,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    CandidateManager.addCandidate(candidate)
+                }
+                showCandidatesOrCast(CandidateManager.getCandidates())
+            } else {
+                Toast.makeText(this, R.string.no_candidates, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showCandidatesOrCast(candidates: List<VideoCandidate>) {
+        if (candidates.isEmpty()) {
+            Toast.makeText(this, R.string.no_candidates, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (candidates.size == 1) {
+            pickDeviceAndCast(candidates.first())
         } else {
-            CandidateDialog(this, currentCandidates) { selectedCandidate ->
+            CandidateDialog(this, candidates) { selectedCandidate ->
                 pickDeviceAndCast(selectedCandidate)
             }.show()
         }
