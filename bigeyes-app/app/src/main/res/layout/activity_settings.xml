@@ -58,7 +58,7 @@
                             android:id="@+id/tv_app_version"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="v2.0.2"
+                            android:text="v2.0.3"
                             android:textColor="@color/brand_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />

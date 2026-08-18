@@ -72,7 +72,9 @@ class MainActivity : AppCompatActivity() {
         checkForUpdatesSilently()
 
         // Default landing page
-        webView.loadUrl("https://v.qq.com")
+        val defaultUrl = "https://vodplus.pages.dev"
+        etUrl.setText(defaultUrl)
+        webView.loadUrl(defaultUrl)
     }
 
     private fun checkForUpdatesSilently() {
