@@ -20,6 +20,7 @@ import com.bigeyes.app.browser.CandidateManager
 import com.bigeyes.app.dlna.DlnaDeviceManager
 import com.bigeyes.app.model.VideoCandidate
 import com.bigeyes.app.service.CastingForegroundService
+import com.bigeyes.app.updater.UpdateManager
 import com.bigeyes.app.utils.NetworkUtils
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.launch
@@ -29,6 +30,10 @@ import java.util.Date
 import java.util.Locale
 
 class SettingsActivity : AppCompatActivity() {
+
+    private lateinit var tvAppVersion: TextView
+    private lateinit var btnCheckUpdate: Button
+    private lateinit var btnOpenGithub: Button
 
     private lateinit var tvLocalServerInfo: TextView
     private lateinit var tvVlcM3u8Url: TextView
@@ -58,6 +63,7 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_settings)
 
         initViews()
+        loadVersionInfo()
         loadServerAndVlcInfo()
         loadLatestCandidateInfo()
         loadDlnaDeviceList()
@@ -67,6 +73,10 @@ class SettingsActivity : AppCompatActivity() {
     private fun initViews() {
         val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
         toolbar.setNavigationOnClickListener { finish() }
+
+        tvAppVersion = findViewById(R.id.tv_app_version)
+        btnCheckUpdate = findViewById(R.id.btn_check_update)
+        btnOpenGithub = findViewById(R.id.btn_open_github)
 
         tvLocalServerInfo = findViewById(R.id.tv_local_server_info)
         tvVlcM3u8Url = findViewById(R.id.tv_vlc_m3u8_url)
@@ -85,6 +95,15 @@ class SettingsActivity : AppCompatActivity() {
         btnIgnoreBattery = findViewById(R.id.btn_ignore_battery)
         tvDebugLogs = findViewById(R.id.tv_debug_logs)
         btnClearLogs = findViewById(R.id.btn_clear_logs)
+
+        btnCheckUpdate.setOnClickListener {
+            UpdateManager.checkUpdate(this, silent = false)
+        }
+
+        btnOpenGithub.setOnClickListener {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/CFM503/BigEyes"))
+            startActivity(intent)
+        }
 
         btnCopyVlcUrl.setOnClickListener {
             if (currentVlcUrl.isNotEmpty() && !currentVlcUrl.contains("(请先")) {
@@ -137,6 +156,11 @@ class SettingsActivity : AppCompatActivity() {
             loadLatestCandidateInfo()
             displayLogs()
         }
+    }
+
+    private fun loadVersionInfo() {
+        val ver = UpdateManager.getCurrentVersionName(this)
+        tvAppVersion.text = "v$ver"
     }
 
     private fun loadServerAndVlcInfo() {

@@ -31,6 +31,8 @@ import com.bigeyes.app.ui.CandidateDialog
 import com.bigeyes.app.ui.DeviceSelectDialog
 import com.bigeyes.app.ui.PlaybackControlBar
 import com.bigeyes.app.ui.SettingsActivity
+import com.bigeyes.app.updater.UpdateManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -66,8 +68,18 @@ class MainActivity : AppCompatActivity() {
         // Ensure Foreground Service is started to host NanoHTTPD & DLNA
         startCastingService()
 
+        // Asynchronous silent check for app updates
+        checkForUpdatesSilently()
+
         // Default landing page
         webView.loadUrl("https://v.qq.com")
+    }
+
+    private fun checkForUpdatesSilently() {
+        lifecycleScope.launch {
+            delay(2000L) // Wait 2s for UI initialization
+            UpdateManager.checkUpdate(this@MainActivity, silent = true)
+        }
     }
 
     private fun initViews() {
@@ -171,7 +183,7 @@ class MainActivity : AppCompatActivity() {
             btnCast.text = "投屏 ($count)"
         } else {
             tvBadgeCount.visibility = View.GONE
-            btnCast.text = "投屏"
+            tvBadgeCount.text = "投屏"
         }
     }
 

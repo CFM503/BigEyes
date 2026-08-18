@@ -37,6 +37,7 @@
 
 ```
 bigeyes/
+├── .github/workflows/            # GitHub Actions 自动化编译发布 Release 工作流
 ├── bigeyes-app/                  # 【v2 核心】Android 客户端 (纯手机独立版)
 │   ├── app/src/main/
 │   │   ├── java/com/bigeyes/app/
@@ -44,8 +45,9 @@ bigeyes/
 │   │   │   ├── proxy/            # 内嵌 NanoHTTPD 代理、M3U8 解析改写、预取与 LRU 缓存
 │   │   │   ├── dlna/             # 原生 SSDP 局域网扫描与 UPnP SOAP 播控 (Play/Pause/Seek)
 │   │   │   ├── service/          # CastingForegroundService 前台保活与锁管理
+│   │   │   ├── updater/          # UpdateManager GitHub Releases 在线自动检测、下载与安装
 │   │   │   ├── model/            # 数据模型 (StreamSession, Candidate, DlnaDevice)
-│   │   │   └── ui/               # 浏览器主界面、底部浮动播控条、设置与抓包调试
+│   │   │   └── ui/               # 浏览器主界面、底部浮动播控条、设置与抓包调试面板
 │   │   └── res/                  # 布局与样式资源
 │   ├── build.gradle.kts
 │   └── settings.gradle.kts
@@ -67,6 +69,7 @@ bigeyes/
 3. **移动端预取加速**：后台 2~3 并发滑动窗口预取分片，搭配 300MB 磁盘 LRU 缓存，保障弱网与网络抖动下的流畅播放。
 4. **原生 DLNA 播控**：内置 SSDP 探测与 UPnP SOAP 控制，支持电视一键开播、暂停/继续、+/-15s 快捷快进快退与进度条拖拽。
 5. **息屏保活支持**：通过 Foreground Service、`PARTIAL_WAKE_LOCK`、`WifiLock` 以及电池优化白名单引导，保障锁屏 10 分钟以上观影不中断。
+6. **在线自动更新**：集成 GitHub Releases 自动检测，支持 App 启动与设置页一键检查更新、流式进度下载并自动拉起安装。
 
 ---
 
@@ -78,7 +81,7 @@ bigeyes/
 cd bigeyes-app
 ./gradlew assembleDebug
 ```
-安装生成的 APK 到 Android 手机。
+安装生成的 APK 到 Android 手机，也可直接在 GitHub Releases 下载预编译的最新 APK。
 
 ### 2. 手机操作流程
 1. **连接 WiFi**：手机与电视保持在同一局域网（同一 WiFi）；
@@ -91,6 +94,6 @@ cd bigeyes-app
 
 ## 三、版本记录
 
-* **v2.0.2 (当前版本)**：稳定性修复与真机联调面板，实现动态滑动 WakeLock 续期、代理弹性有界线程池、VLC/Kodi 调试面板及全套边界单测。
+* **v2.0.2 (当前版本)**：在线自动更新支持（GitHub Releases 检查/下载/安装）、动态滑动 WakeLock 续期、代理弹性有界线程池、VLC/Kodi 调试面板及全套边界单测。
 * **v2.0.1**：纯手机独立版重构，移除 PC 依赖，移入内嵌 HTTP 代理、移动端预取/LRU 缓存与原生 DLNA 控制。
 * **v1.0.1**：PC 代理中转版初始发布。
