@@ -1,7 +1,5 @@
 package com.bigeyes.app.browser
 
-import android.net.Uri
-import android.util.Log
 import android.webkit.WebView
 import java.net.URLDecoder
 
@@ -27,11 +25,7 @@ object VideoSnifferHelper {
         val lower = rawUrl.lowercase()
 
         // 1. Filter out obvious static assets
-        val pathOnly = try {
-            Uri.parse(rawUrl).path?.lowercase() ?: lower
-        } catch (_: Exception) {
-            lower
-        }
+        val pathOnly = lower.substringBefore('?').substringBefore('#')
 
         for (ext in IGNORED_EXTENSIONS) {
             if (pathOnly.endsWith(ext)) {
@@ -75,19 +69,32 @@ object VideoSnifferHelper {
      */
     fun extractDirectVideoUrl(rawUrl: String): String {
         try {
-            val uri = Uri.parse(rawUrl)
-            val queryParams = listOf("url", "v", "src", "link", "video", "play", "file")
-            for (param in queryParams) {
-                val value = uri.getQueryParameter(param)
-                if (!value.isNullOrBlank() && (value.startsWith("http://") || value.startsWith("https://"))) {
-                    if (isVideoStreamUrl(value)) {
-                        return value
+            val queryIndex = rawUrl.indexOf('?')
+            if (queryIndex != -1 && queryIndex < rawUrl.length - 1) {
+                val queryString = rawUrl.substring(queryIndex + 1).substringBefore('#')
+                val pairs = queryString.split('&')
+                val targetKeys = setOf("url", "v", "src", "link", "video", "play", "file")
+                for (pair in pairs) {
+                    val eqIndex = pair.indexOf('=')
+                    if (eqIndex != -1) {
+                        val key = pair.substring(0, eqIndex).lowercase()
+                        if (key in targetKeys) {
+                            val rawValue = pair.substring(eqIndex + 1)
+                            val decoded = try {
+                                URLDecoder.decode(rawValue, "UTF-8")
+                            } catch (_: Exception) {
+                                rawValue
+                            }
+                            if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+                                if (isVideoStreamUrl(decoded)) {
+                                    return decoded
+                                }
+                            }
+                        }
                     }
                 }
             }
-        } catch (e: Exception) {
-            Log.d(TAG, "extractDirectVideoUrl error: ${e.message}")
-        }
+        } catch (_: Exception) {}
         return rawUrl
     }
 
@@ -269,23 +276,23 @@ object VideoSnifferHelper {
             val resultList = mutableListOf<String>()
             try {
                 if (!jsonResult.isNullOrBlank() && jsonResult != "null" && jsonResult != "\"[]\"") {
-                    val unquoted = if (jsonResult.startsWith("\"") && jsonResult.endsWith("\"")) {
-                        // Unescape JSON string
-                        org.json.JSONTokener(jsonResult).nextValue().toString()
-                    } else {
-                        jsonResult
+                    var raw = jsonResult.trim()
+                    if (raw.startsWith("\"") && raw.endsWith("\"") && raw.length >= 2) {
+                        raw = raw.substring(1, raw.length - 1)
+                            .replace("\\\"", "\"")
+                            .replace("\\\\", "\\")
                     }
-                    val jsonArray = org.json.JSONArray(unquoted)
-                    for (i in 0 until jsonArray.length()) {
-                        val item = jsonArray.optString(i)
-                        if (isVideoStreamUrl(item)) {
-                            resultList.add(extractDirectVideoUrl(item))
+                    if (raw.startsWith("[") && raw.endsWith("]")) {
+                        val regex = Regex("\"([^\"]+)\"")
+                        regex.findAll(raw).forEach { match ->
+                            val item = match.groupValues[1]
+                            if (isVideoStreamUrl(item)) {
+                                resultList.add(extractDirectVideoUrl(item))
+                            }
                         }
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "scanVideoInPage parse error: ${e.message}")
-            }
+            } catch (_: Exception) {}
             callback(resultList.distinct())
         }
     }
