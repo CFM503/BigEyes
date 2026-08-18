@@ -1,7 +1,10 @@
 package com.bigeyes.app
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -15,14 +18,15 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.bigeyes.app.browser.CandidateManager
 import com.bigeyes.app.browser.SnifferWebViewClient
-import com.bigeyes.app.discovery.NsdDiscoveryManager
-import com.bigeyes.app.model.DlnaDevice
+import com.bigeyes.app.dlna.DlnaDeviceManager
 import com.bigeyes.app.model.VideoCandidate
-import com.bigeyes.app.network.ServerApiClient
+import com.bigeyes.app.service.CastingForegroundService
 import com.bigeyes.app.ui.CandidateDialog
 import com.bigeyes.app.ui.DeviceSelectDialog
 import com.bigeyes.app.ui.PlaybackControlBar
@@ -42,10 +46,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var containerControl: View
     private lateinit var playbackControlBar: PlaybackControlBar
 
-    private val apiClient = ServerApiClient()
-    private lateinit var discoveryManager: NsdDiscoveryManager
-
+    private var fallbackDlnaManager: DlnaDeviceManager? = null
     private var currentCandidates: List<VideoCandidate> = emptyList()
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,9 +59,12 @@ class MainActivity : AppCompatActivity() {
 
         initViews()
         setupWebView()
-        setupDiscovery()
         setupListeners()
         setupBackNavigation()
+        requestNotificationPermission()
+
+        // Ensure Foreground Service is started to host NanoHTTPD & DLNA
+        startCastingService()
 
         // Default landing page
         webView.loadUrl("https://v.qq.com")
@@ -72,7 +81,26 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progress_bar)
         containerControl = findViewById(R.id.container_playback_control)
 
-        playbackControlBar = PlaybackControlBar(containerControl, apiClient, lifecycleScope)
+        playbackControlBar = PlaybackControlBar(containerControl, lifecycleScope)
+    }
+
+    private fun startCastingService() {
+        val intent = Intent(this, CastingForegroundService::class.java).apply {
+            action = CastingForegroundService.ACTION_START_CAST
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -87,13 +115,7 @@ class MainActivity : AppCompatActivity() {
         settings.loadWithOverviewMode = true
         settings.setSupportMultipleWindows(false) // Blocks popup ads
 
-        webView.webViewClient = SnifferWebViewClient(
-            onPageTitleChanged = { title ->
-                if (!title.isNullOrBlank()) {
-                    // Update address bar if needed
-                }
-            }
-        )
+        webView.webViewClient = SnifferWebViewClient()
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -107,26 +129,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupDiscovery() {
-        discoveryManager = NsdDiscoveryManager(this).apply {
-            onServerFound = { host, port ->
-                apiClient.updateServerAddress(host, port)
-            }
-            onServerLost = {
-                // Keep last known address
-            }
-            startDiscovery()
-        }
-    }
-
     private fun setupListeners() {
-        // Candidate observer
         CandidateManager.addListener { candidates ->
             currentCandidates = candidates
             updateCastBadge(candidates.size)
         }
 
-        // Navigation
         btnBack.setOnClickListener {
             if (webView.canGoBack()) webView.goBack()
         }
@@ -151,7 +159,6 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
-        // Cast button click
         btnCast.setOnClickListener {
             handleCastButtonClick()
         }
@@ -174,55 +181,53 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (apiClient.baseUrl == null) {
-            Toast.makeText(this, R.string.pc_not_found, Toast.LENGTH_LONG).show()
-            startActivity(Intent(this, SettingsActivity::class.java))
-            return
-        }
-
         if (currentCandidates.size == 1) {
-            // Single candidate -> cast directly
-            proceedToCast(currentCandidates.first())
+            pickDeviceAndCast(currentCandidates.first())
         } else {
-            // Multiple candidates -> show dialog
             CandidateDialog(this, currentCandidates) { selectedCandidate ->
-                proceedToCast(selectedCandidate)
+                pickDeviceAndCast(selectedCandidate)
             }.show()
         }
     }
 
-    private fun proceedToCast(candidate: VideoCandidate) {
+    private fun pickDeviceAndCast(candidate: VideoCandidate) {
+        val dlnaManager = CastingForegroundService.instance?.dlnaManager
+            ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also { fallbackDlnaManager = it }
+
         lifecycleScope.launch {
-            Toast.makeText(this@MainActivity, "正在连接 PC 服务与电视...", Toast.LENGTH_SHORT).show()
-            
-            // Check available DLNA devices from PC
-            val devicesResult = apiClient.getDevices()
-            val devices = devicesResult.getOrDefault(emptyList())
+            Toast.makeText(this@MainActivity, "正在扫描局域网电视设备...", Toast.LENGTH_SHORT).show()
+            val devices = dlnaManager.scanOnce()
 
             if (devices.size > 1) {
-                // Multiple TVs found -> let user select
                 DeviceSelectDialog(this@MainActivity, devices) { selectedDevice ->
-                    lifecycleScope.launch {
-                        apiClient.selectDevice(selectedDevice.id)
-                        executeCast(candidate, selectedDevice.name)
-                    }
+                    executeCast(candidate, selectedDevice.id)
                 }.show()
             } else {
-                // 0 or 1 device -> auto cast
-                val deviceName = devices.firstOrNull()?.name
-                executeCast(candidate, deviceName)
+                val soleId = devices.firstOrNull()?.id
+                executeCast(candidate, soleId)
             }
         }
     }
 
-    private suspend fun executeCast(candidate: VideoCandidate, deviceName: String?) {
-        val result = apiClient.cast(candidate)
-        result.onSuccess { json ->
-            val dev = json.optString("device", deviceName ?: "电视")
-            Toast.makeText(this@MainActivity, "投屏已发起: $dev", Toast.LENGTH_LONG).show()
-            playbackControlBar.show(candidate.displayTitle, dev)
-        }.onFailure { err ->
-            Toast.makeText(this@MainActivity, "投屏失败: ${err.message}", Toast.LENGTH_LONG).show()
+    private fun executeCast(candidate: VideoCandidate, targetDeviceId: String?) {
+        val service = CastingForegroundService.instance
+        if (service == null) {
+            startCastingService()
+            Toast.makeText(this, "正在初始化本地投屏服务，请重试", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "正在由手机本地代理推送至电视...", Toast.LENGTH_SHORT).show()
+
+        service.castCandidate(candidate, targetDeviceId) { success, devName ->
+            if (success) {
+                val targetName = devName ?: "电视"
+                Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
+                playbackControlBar.show(candidate.displayTitle, targetName)
+            } else {
+                val err = devName ?: "未找到可用的 DLNA 电视设备"
+                Toast.makeText(this@MainActivity, "投屏失败: $err", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -241,7 +246,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        discoveryManager.release()
+        fallbackDlnaManager?.release()
         webView.destroy()
     }
 }

@@ -3,12 +3,8 @@
     <string name="title_settings">设置与调试</string>
     <string name="cast_button">投屏</string>
     <string name="no_candidates">未嗅探到可投屏视频，请先播放视频</string>
-    <string name="pc_not_found">未发现局域网 PC 服务，请在设置中配置</string>
     <string name="cast_success">已发起投屏</string>
     <string name="cast_failed">投屏失败</string>
     <string name="select_candidate_title">发现多个播放源，请选择：</string>
     <string name="select_device_title">选择投屏电视设备：</string>
-    <string name="pc_status_connected">PC已连接: %s</string>
-    <string name="pc_status_searching">正在发现局域网PC...</string>
-    <string name="pc_status_manual">手动配置PC: %s</string>
 </resources>

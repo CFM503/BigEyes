@@ -11,8 +11,8 @@ android {
         applicationId = "com.bigeyes.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "2.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -54,6 +54,9 @@ dependencies {
     // OkHttp networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
+    // Embedded HTTP Server
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

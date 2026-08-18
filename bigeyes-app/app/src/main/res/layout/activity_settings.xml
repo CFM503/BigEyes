@@ -11,7 +11,7 @@
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         android:background="@color/brand_primary"
-        app:title="设置与嗅探调试"
+        app:title="设置与调试 (v2 纯手机版)"
         app:titleTextColor="@color/white"
         app:navigationIcon="@android:drawable/ic_menu_revert" />
 
@@ -25,7 +25,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- PC Server Connection Card -->
+            <!-- Battery Optimization Whitelist Card -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -42,70 +42,82 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="PC 本地服务配置"
+                        android:text="锁屏与后台保活保障"
                         android:textStyle="bold"
                         android:textSize="16sp"
                         android:textColor="@color/black" />
 
                     <TextView
-                        android:id="@+id/tv_discovery_status"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="mDNS 状态: 自动发现中..."
-                        android:textColor="@color/brand_primary"
-                        android:textSize="13sp"
+                        android:text="BigEyes 作为手机本地流媒体代理服务器，投屏期间需保持 CPU 与 WiFi 高性能运行。建议开启后台无限制白名单以防电视断流。"
+                        android:textColor="#666666"
+                        android:textSize="12sp"
                         android:layout_marginTop="4dp" />
 
-                    <com.google.android.material.textfield.TextInputLayout
+                    <Button
+                        android:id="@+id/btn_ignore_battery"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:text="申请忽略电池优化 (防锁屏断流)"
                         android:layout_marginTop="12dp"
-                        android:hint="手动 PC IP 地址 (可选兜底)">
+                        android:backgroundTint="@color/brand_secondary" />
 
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/et_manual_ip"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:singleLine="true"
-                            android:inputType="text" />
-                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
 
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:layout_width="match_parent"
+            <!-- Local Proxy Server Status Card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:hint="PC 端口 (默认 8765)">
+                        android:text="手机本地内嵌 HTTP 服务"
+                        android:textStyle="bold"
+                        android:textSize="16sp"
+                        android:textColor="@color/black" />
 
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/et_manual_port"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:singleLine="true"
-                            android:text="8765"
-                            android:inputType="number" />
-                    </com.google.android.material.textfield.TextInputLayout>
+                    <TextView
+                        android:id="@+id/tv_local_server_info"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="本机局域网 IP: 获取中...\n内嵌代理端口: 8765\n预取并发: 2~3 (手机专属调优)"
+                        android:textColor="#444444"
+                        android:textSize="13sp"
+                        android:layout_marginTop="6dp" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
+                        android:gravity="center_vertical"
                         android:layout_marginTop="12dp">
 
-                        <Button
-                            android:id="@+id/btn_save_config"
+                        <TextView
+                            android:id="@+id/tv_cache_info"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="保存配置"
-                            android:backgroundTint="@color/brand_primary" />
+                            android:text="缓存占用: 0 MB / 300 MB"
+                            android:textSize="13sp"
+                            android:textColor="#555555" />
 
                         <Button
-                            android:id="@+id/btn_test_conn"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="测试连通性"
-                            android:layout_marginStart="8dp"
+                            android:id="@+id/btn_clear_cache"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="清理分片缓存"
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
                     </LinearLayout>
 

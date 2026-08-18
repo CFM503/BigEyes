@@ -6,12 +6,11 @@ import android.widget.ImageButton
 import android.widget.SeekBar
 import android.widget.TextView
 import com.bigeyes.app.R
-import com.bigeyes.app.network.ServerApiClient
+import com.bigeyes.app.service.CastingForegroundService
 import kotlinx.coroutines.*
 
 class PlaybackControlBar(
     private val container: View,
-    private val apiClient: ServerApiClient,
     private val scope: CoroutineScope
 ) {
     private val tvTitle: TextView = container.findViewById(R.id.tv_playing_title)
@@ -37,18 +36,24 @@ class PlaybackControlBar(
 
     private fun setupListeners() {
         btnPlayPause.setOnClickListener {
+            val service = CastingForegroundService.instance ?: return@setOnClickListener
+            val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
+            val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
+
             scope.launch {
-                val action = if (isPlaying) "pause" else "play"
-                apiClient.control(action)
+                if (isPlaying) {
+                    service.dlnaManager.controller.pause(ctrlUrl)
+                } else {
+                    service.dlnaManager.controller.play(ctrlUrl)
+                }
                 fetchStatus()
             }
         }
 
         btnStop.setOnClickListener {
-            scope.launch {
-                apiClient.control("stop")
-                hide()
-            }
+            val service = CastingForegroundService.instance
+            service?.stopCasting()
+            hide()
         }
 
         btnClose.setOnClickListener {
@@ -56,21 +61,29 @@ class PlaybackControlBar(
         }
 
         btnRewind.setOnClickListener {
+            val service = CastingForegroundService.instance ?: return@setOnClickListener
+            val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
+            val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
+
             scope.launch {
                 val targetSecs = (currentPosSecs - 15).coerceAtLeast(0)
-                apiClient.control("seek", formatSeconds(targetSecs))
+                service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
                 fetchStatus()
             }
         }
 
         btnForward.setOnClickListener {
+            val service = CastingForegroundService.instance ?: return@setOnClickListener
+            val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
+            val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
+
             scope.launch {
                 val targetSecs = if (currentTotalSecs > 0) {
                     (currentPosSecs + 15).coerceAtMost(currentTotalSecs)
                 } else {
                     currentPosSecs + 15
                 }
-                apiClient.control("seek", formatSeconds(targetSecs))
+                service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
                 fetchStatus()
             }
         }
@@ -92,8 +105,12 @@ class PlaybackControlBar(
                 val progress = sb?.progress ?: 0
                 if (currentTotalSecs > 0) {
                     val targetSecs = (progress.toFloat() / 1000f * currentTotalSecs).toInt()
-                    scope.launch {
-                        apiClient.control("seek", formatSeconds(targetSecs))
+                    val service = CastingForegroundService.instance
+                    val ctrlUrl = service?.dlnaManager?.getSelectedDevice()?.avTransportControlUrl
+                    if (ctrlUrl != null) {
+                        scope.launch {
+                            service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
+                        }
                     }
                 }
             }
@@ -128,26 +145,34 @@ class PlaybackControlBar(
     }
 
     private suspend fun fetchStatus() {
-        val result = apiClient.getStatus()
-        result.onSuccess { status ->
-            if (!isUserSeeking) {
-                tvTitle.text = status.title ?: tvTitle.text
-                status.device?.let { tvDevice.text = it }
+        val service = CastingForegroundService.instance ?: return
+        val target = service.dlnaManager.getSelectedDevice() ?: return
+        val ctrlUrl = target.avTransportControlUrl ?: return
 
-                isPlaying = status.state.contains("play", ignoreCase = true)
+        try {
+            val posInfo = service.dlnaManager.controller.getPositionInfo(ctrlUrl)
+            val transInfo = service.dlnaManager.controller.getTransportInfo(ctrlUrl)
+
+            if (!isUserSeeking) {
+                val relTime = posInfo["rel_time"] ?: "00:00:00"
+                val duration = posInfo["track_duration"] ?: "00:00:00"
+                val state = transInfo["current_transport_state"] ?: "STOPPED"
+
+                isPlaying = state.contains("play", ignoreCase = true)
                 btnPlayPause.text = if (isPlaying) "暂停" else "播放"
 
-                tvCurrentTime.text = status.position
-                tvTotalTime.text = status.duration
+                tvCurrentTime.text = relTime
+                tvTotalTime.text = duration
 
-                currentPosSecs = parseTimeToSeconds(status.position)
-                currentTotalSecs = parseTimeToSeconds(status.duration)
+                currentPosSecs = parseTimeToSeconds(relTime)
+                currentTotalSecs = parseTimeToSeconds(duration)
 
                 if (currentTotalSecs > 0) {
                     val prog = ((currentPosSecs.toFloat() / currentTotalSecs.toFloat()) * 1000).toInt()
                     seekBar.progress = prog.coerceIn(0, 1000)
                 }
             }
+        } catch (_: Exception) {
         }
     }
 
@@ -160,7 +185,7 @@ class PlaybackControlBar(
                 1 -> parts[0].toInt()
                 else -> 0
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             0
         }
     }

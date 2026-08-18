@@ -1,32 +1,33 @@
 package com.bigeyes.app.ui
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
 import com.bigeyes.app.R
 import com.bigeyes.app.browser.CandidateManager
-import com.bigeyes.app.discovery.NsdDiscoveryManager
-import com.bigeyes.app.network.ServerApiClient
+import com.bigeyes.app.service.CastingForegroundService
+import com.bigeyes.app.utils.NetworkUtils
 import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.textfield.TextInputEditText
-import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class SettingsActivity : AppCompatActivity() {
 
-    private lateinit var discoveryManager: NsdDiscoveryManager
-    private val apiClient = ServerApiClient()
-
-    private lateinit var tvDiscoveryStatus: TextView
-    private lateinit var etManualIp: TextInputEditText
-    private lateinit var etManualPort: TextInputEditText
-    private lateinit var btnSaveConfig: Button
-    private lateinit var btnTestConn: Button
+    private lateinit var tvLocalServerInfo: TextView
+    private lateinit var tvCacheInfo: TextView
+    private lateinit var btnClearCache: Button
+    private lateinit var btnIgnoreBattery: Button
     private lateinit var tvDebugLogs: TextView
     private lateinit var btnClearLogs: Button
 
@@ -34,10 +35,8 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        discoveryManager = NsdDiscoveryManager(this)
-
         initViews()
-        loadConfig()
+        loadServerAndCacheInfo()
         displayLogs()
     }
 
@@ -45,20 +44,19 @@ class SettingsActivity : AppCompatActivity() {
         val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
         toolbar.setNavigationOnClickListener { finish() }
 
-        tvDiscoveryStatus = findViewById(R.id.tv_discovery_status)
-        etManualIp = findViewById(R.id.et_manual_ip)
-        etManualPort = findViewById(R.id.et_manual_port)
-        btnSaveConfig = findViewById(R.id.btn_save_config)
-        btnTestConn = findViewById(R.id.btn_test_conn)
+        tvLocalServerInfo = findViewById(R.id.tv_local_server_info)
+        tvCacheInfo = findViewById(R.id.tv_cache_info)
+        btnClearCache = findViewById(R.id.btn_clear_cache)
+        btnIgnoreBattery = findViewById(R.id.btn_ignore_battery)
         tvDebugLogs = findViewById(R.id.tv_debug_logs)
         btnClearLogs = findViewById(R.id.btn_clear_logs)
 
-        btnSaveConfig.setOnClickListener {
-            saveConfig()
+        btnIgnoreBattery.setOnClickListener {
+            requestIgnoreBatteryOptimization()
         }
 
-        btnTestConn.setOnClickListener {
-            testConnection()
+        btnClearCache.setOnClickListener {
+            clearStreamCache()
         }
 
         btnClearLogs.setOnClickListener {
@@ -67,58 +65,52 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadConfig() {
-        val (manualHost, manualPort) = discoveryManager.getManualServer()
-        if (!manualHost.isNullOrBlank()) {
-            etManualIp.setText(manualHost)
-            etManualPort.setText(manualPort.toString())
-            apiClient.updateServerAddress(manualHost, manualPort)
-            tvDiscoveryStatus.text = "当前使用手动配置: $manualHost:$manualPort"
-        } else {
-            val lastServer = discoveryManager.getLastKnownServer()
-            if (lastServer != null) {
-                tvDiscoveryStatus.text = "mDNS 最近发现: ${lastServer.first}:${lastServer.second}"
-                apiClient.updateServerAddress(lastServer.first, lastServer.second)
-            } else {
-                tvDiscoveryStatus.text = "mDNS 正在自动搜索中..."
-            }
-        }
+    private fun loadServerAndCacheInfo() {
+        val ip = NetworkUtils.getLocalIpAddress(this)
+        tvLocalServerInfo.text = "本机局域网 IP: $ip\n内嵌代理端口: 8765\n预取并发: 2~3 (手机专属低功耗调优)\n代理模式: 纯手机独立运行 (无须PC)"
+
+        updateCacheDisplay()
     }
 
-    private fun saveConfig() {
-        val ip = etManualIp.text?.toString()?.trim()
-        val portStr = etManualPort.text?.toString()?.trim()
-        val port = portStr?.toIntOrNull() ?: 8765
+    private fun updateCacheDisplay() {
+        val cacheDir = File(cacheDir, "bigeyes_stream_cache")
+        val sizeBytes = if (cacheDir.exists()) {
+            cacheDir.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
+        } else 0L
 
-        if (!ip.isNullOrBlank()) {
-            discoveryManager.setManualServer(ip, port)
-            apiClient.updateServerAddress(ip, port)
-            tvDiscoveryStatus.text = "手动配置已保存: $ip:$port"
-            Toast.makeText(this, "PC 服务地址已保存", Toast.LENGTH_SHORT).show()
-        } else {
-            discoveryManager.setManualServer(null, 8765)
-            tvDiscoveryStatus.text = "已切换为 mDNS 自动发现"
-            Toast.makeText(this, "已清除手动配置，恢复自动发现", Toast.LENGTH_SHORT).show()
-        }
+        val sizeMb = sizeBytes / (1024 * 1024)
+        tvCacheInfo.text = "缓存占用: $sizeMb MB / 300 MB"
     }
 
-    private fun testConnection() {
-        val ip = etManualIp.text?.toString()?.trim()
-        val port = etManualPort.text?.toString()?.trim()?.toIntOrNull() ?: 8765
-
-        if (!ip.isNullOrBlank()) {
-            apiClient.updateServerAddress(ip, port)
-        }
-
-        lifecycleScope.launch {
-            Toast.makeText(this@SettingsActivity, "正在测试与 PC 服务的连通性...", Toast.LENGTH_SHORT).show()
-            val result = apiClient.checkConnection()
-            if (result.isSuccess && result.getOrDefault(false)) {
-                Toast.makeText(this@SettingsActivity, "连接成功！PC 服务运行正常", Toast.LENGTH_LONG).show()
-            } else {
-                val err = result.exceptionOrNull()?.message ?: "未知错误"
-                Toast.makeText(this@SettingsActivity, "连接失败: $err", Toast.LENGTH_LONG).show()
+    private fun clearStreamCache() {
+        CastingForegroundService.instance?.streamManager?.cache?.clear()
+            ?: run {
+                val cacheDir = File(cacheDir, "bigeyes_stream_cache")
+                cacheDir.listFiles()?.forEach { it.delete() }
             }
+        updateCacheDisplay()
+        Toast.makeText(this, "分片缓存已清空", Toast.LENGTH_SHORT).show()
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun requestIgnoreBatteryOptimization() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    startActivity(fallbackIntent)
+                }
+            } else {
+                Toast.makeText(this, "已处于电池优化白名单中，锁屏保活已就绪", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            Toast.makeText(this, "当前系统版本无需配置电池优化", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -1,6 +1,35 @@
-# BigEyes 投屏系统
+# BigEyes 投屏系统 (v2 纯手机独立版)
 
-> 影视资源站网页嗅探 + PC 代理/预取加速 + 电视 DLNA 投屏系统
+> 影视资源站网页嗅探 + 手机本地内嵌代理/预取加速 + 电视 DLNA 投屏系统 (无需 PC)
+
+---
+
+## 架构示意图 (v2 架构)
+
+```
+┌────────────────────────────────────────────────────────┐
+│               Android App (BigEyes v2)                 │
+│                                                        │
+│  WebView 壳浏览器 + 嗅探层                              │
+│         │ 提取到 {url, referer, user_agent, cookie}     │
+│         ▼                                              │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │ 前台服务 (CastingForegroundService)              │  │
+│  │  ├─ 内嵌 HTTP 代理 (NanoHTTPD :8765)             │  │
+│  │  │    m3u8改写 / 分片代理 / 2~3并发预取 / LRU缓存 │  │
+│  │  ├─ SSDP 扫描 DLNA 电视 + 原生 SOAP 控制         │  │
+│  │  ├─ WakeLock (保 CPU 息屏不休眠)                 │  │
+│  │  └─ WifiLock (保 WiFi 芯片息屏不降频)            │  │
+│  └───────────┬──────────────────────────────────────┘  │
+└──────────────┼─────────────────────────────────────────┘
+               │ 电视拉流: http://<手机局域网IP>:8765/stream/...
+               ▼
+       ┌───────────────┐
+       │  电视 DLNA 播放端 │
+       └───────────────┘
+```
+
+**关键原则**：电视始终只向手机本地内嵌代理请求改写后的流，不直连外网源站；手机在投屏期间常驻前台服务，锁屏可持续观影。
 
 ---
 
@@ -8,111 +37,59 @@
 
 ```
 bigeyes/
-├── bigeyes-server/               # PC 本地服务 (Python + FastAPI)
-│   ├── app/
-│   │   ├── api/                  # REST API & Stream 代理路由 (/api/cast, /stream/...)
-│   │   ├── discovery/            # mDNS 广播服务 (_bigeyes._tcp.local.)
-│   │   ├── dlna/                 # SSDP 设备扫描与 DLNA SOAP 控制 (Play/Pause/Seek)
-│   │   ├── proxy/                # m3u8 解析改写、防盗链拉流、并发预取与 LRU 缓存
-│   │   └── utils/                # 局域网物理网卡 IP 识别
-│   ├── tests/                    # 单元与集成测试 (pytest)
-│   ├── requirements.txt
-│   └── run_server.py             # 启动入口脚本
+├── bigeyes-app/                  # 【v2 核心】Android 客户端 (纯手机独立版)
+│   ├── app/src/main/
+│   │   ├── java/com/bigeyes/app/
+│   │   │   ├── browser/          # WebView 壳浏览器与 shouldInterceptRequest 嗅探
+│   │   │   ├── proxy/            # 内嵌 NanoHTTPD 代理、M3U8 解析改写、预取与 LRU 缓存
+│   │   │   ├── dlna/             # 原生 SSDP 局域网扫描与 UPnP SOAP 播控 (Play/Pause/Seek)
+│   │   │   ├── service/          # CastingForegroundService 前台保活与锁管理
+│   │   │   ├── model/            # 数据模型 (StreamSession, Candidate, DlnaDevice)
+│   │   │   └── ui/               # 浏览器主界面、底部浮动播控条、设置与抓包调试
+│   │   └── res/                  # 布局与样式资源
+│   ├── build.gradle.kts
+│   └── settings.gradle.kts
 │
-└── bigeyes-app/                  # Android 客户端 (Kotlin + Android Gradle)
-    ├── app/src/main/
-    │   ├── AndroidManifest.xml
-    │   ├── java/com/bigeyes/app/
-    │   │   ├── browser/          # WebView 壳浏览器与 shouldInterceptRequest 嗅探器
-    │   │   ├── discovery/        # NsdManager mDNS 服务发现客户端
-    │   │   ├── model/            # 候选流与设备数据模型
-    │   │   ├── network/          # OkHttp 与 PC 服务通信 Client
-    │   │   └── ui/               # 候选选择、设备选择、底部播控浮条、设置与调试页
-    │   └── res/                  # 布局与样式资源
-    ├── build.gradle.kts
-    └── settings.gradle.kts
+├── bigeyes-server/               # 【v1 归档参考】原 PC 端 Python 服务 (v2 无须运行)
+│   ├── app/
+│   └── run_server.py
+│
+├── CHANGELOG.md                  # 版本发布与修改日志
+└── README.md
 ```
 
 ---
 
-## 一、PC 本地服务 (bigeyes-server) 使用与验证
+## 一、功能特性
 
-### 1. 安装依赖
-```bash
-cd bigeyes-server
-pip install -r requirements.txt
-```
-
-### 2. 运行自动化测试
-```bash
-python -m pytest tests
-```
-测试涵盖：
-- Master Playlist 码率优选与 Media Playlist 分片/AES-128 Key 代理 URL 改写
-- 磁盘 LRU 缓存存储与容量淘汰机制
-- 完整 Cast 发起、防盗链 Header 透传、流改写、分片下载与预取管线
-
-### 3. 启动服务
-```bash
-python run_server.py
-```
-启动后服务监听在 `http://0.0.0.0:8765`，并自动通过 mDNS 广播 `_bigeyes._tcp.local.`，同时在后台定期扫描局域网内的 DLNA 电视设备。
-
-### 4. 验证命令 (curl)
-
-#### ① 服务健康检查
-```bash
-curl.exe -s http://127.0.0.1:8765/
-# 预期输出: {"service":"BigEyes PC Server","version":"1.0.0","lan_ip":"...","port":8765}
-```
-
-#### ② 发起投屏
-```bash
-curl.exe -X POST http://127.0.0.1:8765/api/cast \
-  -H "Content-Type: application/json" \
-  -d "{\"url\":\"https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8\",\"title\":\"测试视频\"}"
-# 预期输出: {"status":"ok","stream_id":"xxxx","proxy_url":"http://...:8765/stream/xxxx/index.m3u8",...}
-```
-
-#### ③ 获取改写后的 m3u8 清单
-```bash
-curl.exe -s http://127.0.0.1:8765/stream/<stream_id>/index.m3u8
-# 预期输出: 标准 HLS playlist，所有 .ts 和 .key 地址均被替换为经过 PC 代理的本地 URL
-```
-
-#### ④ 获取视频分片与预取落盘
-```bash
-curl.exe -i -s http://127.0.0.1:8765/stream/<stream_id>/seg/0.ts -o nul -w "HTTP Status: %{http_code}\nContent-Type: %{content_type}\nDownloaded: %{size_download} bytes\n"
-# 预期输出: HTTP 200, Content-Type: video/mp2t，并在 ~/.bigeyes/cache/ 目录下触发并发预取
-```
-
-#### ⑤ 播控与状态查询
-```bash
-# 查询当前播放状态
-curl.exe -s http://127.0.0.1:8765/api/status
-
-# 暂停/继续
-curl.exe -X POST http://127.0.0.1:8765/api/control -H "Content-Type: application/json" -d "{\"action\":\"pause\"}"
-curl.exe -X POST http://127.0.0.1:8765/api/control -H "Content-Type: application/json" -d "{\"action\":\"play\"}"
-```
+1. **一键嗅探**：在内置 WebView 中浏览视频网站播放视频，自动提取真实 `.m3u8` 地址及防盗链上下文（`Referer`、`User-Agent`、`Cookie`）。
+2. **内嵌代理与防盗链**：手机内嵌 NanoHTTPD HTTP 服务器，重写 m3u8 清单分片与 AES-128 Key 为本地代理 URL，电视拉流时由手机代取并透传原始请求头。
+3. **移动端预取加速**：后台 2~3 并发滑动窗口预取分片，搭配 300MB 磁盘 LRU 缓存，保障弱网与网络抖动下的流畅播放。
+4. **原生 DLNA 播控**：内置 SSDP 探测与 UPnP SOAP 控制，支持电视一键开播、暂停/继续、+/-15s 快捷快进快退与进度条拖拽。
+5. **息屏保活支持**：通过 Foreground Service、`PARTIAL_WAKE_LOCK`、`WifiLock` 以及电池优化白名单引导，保障锁屏 10 分钟以上观影不中断。
 
 ---
 
-## 二、Android 客户端 (bigeyes-app) 使用与验证
+## 二、使用指南
 
-### 1. 编译与安装
-使用 Android Studio 打开 `bigeyes-app` 目录，或者使用 Gradle 命令行构建：
+### 1. 构建与安装
+使用 Android Studio 打开 `bigeyes-app` 目录构建 APK，或通过 Gradle 命令行打包：
 ```bash
 cd bigeyes-app
 ./gradlew assembleDebug
 ```
-生成的 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
+安装生成的 APK 到 Android 手机。
 
-### 2. 功能验证路径
-1. **服务自动连接**：App 启动时通过 `NsdManager` 自动扫描并连接局域网内的 PC 服务（若网络隔离可在“设置”中手动填入 PC IP）。
-2. **网页浏览与嗅探**：在地址栏输入影视资源站网址，点击进入视频播放页面播放视频。
-3. **投屏按钮点亮**：当 WebView 发出 `.m3u8` 请求时，嗅探层自动提取完整的 URL、Referer、User-Agent、Cookie，右上角投屏按钮右上角展示候选数量徽标 `投屏 (1)`。
-4. **一键投屏**：点击投屏按钮：
-   - 若只有 1 条候选，直接推送到电视；
-   - 若有多条候选（如广告流 + 正片流），弹出选择框供用户确认。
-5. **播控与后台播放**：投屏成功后底部弹出悬浮播控条（播放/暂停、进度拖拽、加减 15 秒、停止）。手机可直接锁屏或退出 App，电视端从 PC 代理持续拉流播放。
+### 2. 手机操作流程
+1. **连接 WiFi**：手机与电视保持在同一局域网（同一 WiFi）；
+2. **打开 App 刷剧**：在地址栏输入影视资源站网址，进入播放页；
+3. **点击投屏**：视频开播后右上角投屏按钮点亮显示候选数量徽标 `投屏 (1)`，点击投屏；
+4. **电视自动开播**：若局域网发现多台电视会弹出选择列表，选中后电视自动开播，手机底部弹出播控条；
+5. **锁屏观影**：投屏发起后通知栏显示常驻投屏服务，手机可安心锁屏，电视端持续流畅播放。
+
+---
+
+## 三、版本记录
+
+* **v2.0.1 (当前版本)**：纯手机独立版重构，移除 PC 依赖，移入内嵌 HTTP 代理、移动端预取/LRU 缓存与原生 DLNA 控制。
+* **v1.0.1**：PC 代理中转版初始发布。
