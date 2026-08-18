@@ -35,6 +35,11 @@ jobs:
           cd bigeyes-app
           ./gradlew assembleRelease --stacktrace
 
+      - name: Print Test Failures if any
+        if: failure()
+        run: |
+          find bigeyes-app -name "*.txt" -path "*/reports/tests/*" -exec cat {} + || true
+
       - name: Prepare Release Asset
         run: |
           TAG_NAME="${GITHUB_REF_NAME:-v2.0.3}"
