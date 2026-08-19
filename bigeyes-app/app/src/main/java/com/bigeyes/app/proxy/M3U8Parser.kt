@@ -170,6 +170,10 @@ object M3U8Parser {
             }
         }
 
+        if (!rewrittenLines.any { it.trim().startsWith("#EXTM3U", ignoreCase = true) }) {
+            rewrittenLines.add(0, "#EXTM3U")
+        }
+
         return Triple(rewrittenLines.joinToString("\n") + "\n", segments, keys)
     }
 }

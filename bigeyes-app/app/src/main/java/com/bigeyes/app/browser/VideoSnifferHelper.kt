@@ -13,37 +13,41 @@ object VideoSnifferHelper {
         ".ts", ".m4s", ".m3u", ".mov", ".mkv", ".avi"
     )
 
-    // Non-media static asset extensions to ignore immediately
+    // Non-media static asset and page extensions to ignore immediately
     private val IGNORED_EXTENSIONS = listOf(
         ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".webp",
         ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map",
-        ".json", ".xml", ".html", ".htm"
+        ".json", ".xml", ".html", ".htm", ".php", ".jsp", ".asp", ".aspx"
     )
 
     fun isVideoStreamUrl(rawUrl: String): Boolean {
         if (rawUrl.isBlank()) return false
         val lower = rawUrl.lowercase()
 
-        // 1. Filter out obvious static assets
-        val pathOnly = lower.substringBefore('?').substringBefore('#')
+        // 1. Filter out obvious non-video schemas
+        if (lower.startsWith("blob:") || lower.startsWith("data:") || lower.startsWith("javascript:") || lower.startsWith("about:")) {
+            return false
+        }
 
-        for (ext in IGNORED_EXTENSIONS) {
-            if (pathOnly.endsWith(ext)) {
+        // 2. Direct video extension match in path or query
+        val pathOnly = lower.substringBefore('?').substringBefore('#')
+        for (ign in IGNORED_EXTENSIONS) {
+            if (pathOnly.endsWith(ign)) {
                 return false
             }
         }
 
-        // 2. Direct video extension match in path or query
         for (ext in VIDEO_EXTENSIONS) {
-            if (lower.contains(ext)) {
+            if (pathOnly.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#") || lower.contains("$ext&") || lower.contains("$ext/")) {
                 return true
             }
         }
 
-        // 3. Common streaming path signatures
-        if (lower.contains("/hls/") || lower.contains("/vod/") || lower.contains("/m3u8/") ||
-            lower.contains("playlist") || lower.contains("manifest") || lower.contains("live.m3u8") ||
-            lower.contains("/video/") || lower.contains("type=m3u8") || lower.contains("format=hls")) {
+        // 3. Explicit streaming query parameters or manifest signatures
+        if (lower.contains("format=m3u8") || lower.contains("type=m3u8") || lower.contains("format=hls") ||
+            lower.contains("ext=m3u8") || lower.contains("output=m3u8") || lower.contains("type=hls") ||
+            lower.contains(".m3u8") || lower.contains("manifest.m3u8") || lower.contains("master.m3u8") ||
+            lower.contains("/hls/") && (lower.contains(".m3u8") || lower.contains(".ts"))) {
             return true
         }
 

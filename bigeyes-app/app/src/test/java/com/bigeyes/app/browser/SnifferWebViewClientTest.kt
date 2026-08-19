@@ -27,11 +27,14 @@ class SnifferWebViewClientTest {
             VideoSnifferHelper.extractDirectVideoUrl("https://player.example.com/play?url=https%3A%2F%2Fcdn.com%2Fvideo%2Findex.m3u8")
         )
 
-        // Non-media static web assets
+        // Non-media static web assets and HTML/API pages
         assertFalse(client.isM3U8Stream("https://example.com/page.html"))
         assertFalse(client.isM3U8Stream("https://example.com/style.css"))
         assertFalse(client.isM3U8Stream("https://example.com/app.js"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/logo.png"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/font.woff2"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://vodplus.pages.dev/vod/detail/id/123.html"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://api.vodplus.dev/vod/?ac=detail"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://site.com/static/video/player.js"))
     }
 }
