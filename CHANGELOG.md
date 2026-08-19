@@ -7,8 +7,9 @@
   * 发现影视播放器边播边加载 `.ts` 切片时，切片不断挤占候选池（形成虚假的“投屏(5)”切片列表）；
   * 用户点播这些 `.ts` 切片时，后台将 TS 二进制流当作 M3U8 文本解析，导致生成的 M3U8 充满二进制乱码，Kodi 报错 `Playback failed (Error creating demuxer)`；
   * 严格限定候选池只接受完整独立播放列表（`.m3u8`、`.mp4` 等），过滤 `.ts`、`.m4s`、`.key` 分片；
-* **M3U8 有效性强校验**：
-  * 在代理创建流会话前，强制校验响应内容必须包含 `#EXTM3U`、`#EXTINF` 或 `#EXT-X-STREAM-INF`，杜绝任何二进制数据误当 M3U8 文本解析。
+* **Windows 辅助脚本与防火墙放行工具**：
+  * 新增 [`fix_dlna.bat`](file:///d:/SOFT/AI/github/bigeyes/fix_dlna.bat)：自动将当前网络切换为专用网络，一键开启 Windows「网络发现」与「媒体流」防火墙规则；
+  * 新增 [`open_port_9192.bat`](file:///d:/SOFT/AI/github/bigeyes/open_port_9192.bat)：自动提权并一键添加入站放行 9192 端口（TCP/UDP）规则。
 
 ---
 

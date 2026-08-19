@@ -53,6 +53,8 @@ bigeyes/
 │   ├── build.gradle.kts
 │   └── settings.gradle.kts
 │
+├── fix_dlna.bat                  # Windows 局域网 DLNA 网络发现与防火墙一键修复脚本
+├── open_port_9192.bat            # Windows 防火墙 9192 端口入站放行一键脚本
 ├── CHANGELOG.md                  # 版本发布与修改日志
 └── README.md
 ```
