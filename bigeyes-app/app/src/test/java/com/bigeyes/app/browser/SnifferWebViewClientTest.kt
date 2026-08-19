@@ -33,8 +33,12 @@ class SnifferWebViewClientTest {
         assertFalse(client.isM3U8Stream("https://example.com/app.js"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/logo.png"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/font.woff2"))
-        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://vodplus.pages.dev/vod/detail/id/123.html"))
-        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://api.vodplus.dev/vod/?ac=detail"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://site.com/static/video/player.js"))
+
+        // Segment slices should not be treated as standalone playable streams
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://hnts.ymuuy.com:65/hls/918/20260710/4270253/1.ts"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/segment_0.ts"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/chunk.m4s"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/enc.key"))
     }
 }

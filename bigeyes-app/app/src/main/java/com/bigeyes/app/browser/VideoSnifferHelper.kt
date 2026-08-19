@@ -7,10 +7,15 @@ object VideoSnifferHelper {
 
     private const val TAG = "VideoSnifferHelper"
 
-    // Common media extensions
-    private val VIDEO_EXTENSIONS = listOf(
+    // Playable standalone video stream/container extensions
+    private val PLAYABLE_VIDEO_EXTENSIONS = listOf(
         ".m3u8", ".mp4", ".flv", ".f4v", ".webm",
-        ".ts", ".m4s", ".m3u", ".mov", ".mkv", ".avi"
+        ".m3u", ".mov", ".mkv", ".avi"
+    )
+
+    // Sub-segment chunks to strictly ignore from candidate list
+    private val SEGMENT_EXTENSIONS = listOf(
+        ".ts", ".m4s", ".key", ".vtt", ".srt", ".ass"
     )
 
     // Non-media static asset and page extensions to ignore immediately
@@ -29,36 +34,45 @@ object VideoSnifferHelper {
             return false
         }
 
-        // 2. Direct video extension match in path or query
         val pathOnly = lower.substringBefore('?').substringBefore('#')
+
+        // 2. Ignore non-media static assets
         for (ign in IGNORED_EXTENSIONS) {
             if (pathOnly.endsWith(ign)) {
                 return false
             }
         }
 
-        for (ext in VIDEO_EXTENSIONS) {
+        // 3. Strictly ignore individual segment chunks (TS/M4S/Key)
+        for (seg in SEGMENT_EXTENSIONS) {
+            if (pathOnly.endsWith(seg) || lower.contains("$seg?") || lower.contains("$seg#") || lower.contains("$seg&")) {
+                return false
+            }
+        }
+
+        // 4. Match playable video extensions
+        for (ext in PLAYABLE_VIDEO_EXTENSIONS) {
             if (pathOnly.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#") || lower.contains("$ext&") || lower.contains("$ext/")) {
                 return true
             }
         }
 
-        // 3. Explicit streaming query parameters or manifest signatures
+        // 5. Explicit streaming query parameters or manifest signatures
         if (lower.contains("format=m3u8") || lower.contains("type=m3u8") || lower.contains("format=hls") ||
             lower.contains("ext=m3u8") || lower.contains("output=m3u8") || lower.contains("type=hls") ||
             lower.contains(".m3u8") || lower.contains("manifest.m3u8") || lower.contains("master.m3u8") ||
-            lower.contains("/hls/") && (lower.contains(".m3u8") || lower.contains(".ts"))) {
+            (lower.contains("/hls/") && lower.contains(".m3u8"))) {
             return true
         }
 
-        // 4. URL-encoded video URLs inside query parameters (e.g. ?url=https%3A%2F%2F...m3u8)
+        // 6. URL-encoded video URLs inside query parameters (e.g. ?url=https%3A%2F%2F...m3u8)
         if (lower.contains("url=http") || lower.contains("v=http") || lower.contains("src=http") || lower.contains("link=http")) {
             val decoded = try {
                 URLDecoder.decode(rawUrl, "UTF-8").lowercase()
             } catch (_: Exception) {
                 ""
             }
-            for (ext in VIDEO_EXTENSIONS) {
+            for (ext in PLAYABLE_VIDEO_EXTENSIONS) {
                 if (decoded.contains(ext)) {
                     return true
                 }

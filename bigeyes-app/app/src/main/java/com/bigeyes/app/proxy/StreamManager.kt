@@ -43,8 +43,11 @@ class StreamManager(context: Context) {
 
         // 1. Fetch root playlist
         val rootContent = fetcher.fetchText(url, referer, userAgent, cookie)
-        if (rootContent.contains("<html", ignoreCase = true) || rootContent.contains("<!DOCTYPE", ignoreCase = true)) {
-            throw IllegalArgumentException("嗅探到的地址返回的是网页(HTML)并非视频流，请在浏览器中播放视频后重试")
+        val isM3U8 = rootContent.contains("#EXTM3U", ignoreCase = true) ||
+                     rootContent.contains("#EXTINF", ignoreCase = true) ||
+                     rootContent.contains("#EXT-X-STREAM-INF", ignoreCase = true)
+        if (!isM3U8) {
+            throw IllegalArgumentException("嗅探到的地址返回的不是标准 M3U8 播放列表")
         }
         val isMaster = M3U8Parser.isMasterPlaylist(rootContent)
         var mediaContent = rootContent
