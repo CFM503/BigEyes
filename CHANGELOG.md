@@ -1,5 +1,18 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.8] - 2026-08-19
+
+### 🛠️ 单元测试与 JVM 兼容性修复
+* **`WebViewDownloadHelper` Base64 多重兼容解码**：
+  * 在纯 JVM 单元测试与 Android 8.0+ 环境下优先采用 `java.util.Base64` 标准 MIME/Basic 解码器，解决未 Mock 的 Android 框架方法返回空值引发的单元测试断言失败；
+  * 自动降级回退至 `android.util.Base64`，完整兼顾低版本 Android 设备；
+  * 增加日志输出安全捕获，消除测试环境下的非预期异常；
+* **测试与 CI 构建稳定性提升**：
+  * 修复单元测试环境下 Looper/Handler 初始化与空指针问题；
+  * 补全相关类引用与构建日志输出，确保 GitHub Actions CI 及本地 Gradle 构建与测试全绿通过。
+
+---
+
 ## [v2.0.7] - 2026-08-19
 
 ### 🎯 深度视频嗅探重构 (双引擎 + 主动 DOM 扫描)

@@ -49,7 +49,7 @@ object WebViewDownloadHelper {
             }
 
             val bytes: ByteArray = if (isBase64) {
-                Base64.decode(dataPart, Base64.DEFAULT)
+                decodeBase64(dataPart)
             } else {
                 URLDecoder.decode(dataPart, "UTF-8").toByteArray(Charsets.UTF_8)
             }
@@ -57,9 +57,29 @@ object WebViewDownloadHelper {
             val ext = guessExtensionFromMimeType(mimeType)
             return ParsedDataUri(mimeType, bytes, ext)
         } catch (e: Exception) {
-            Log.e(TAG, "Error parsing data URI: ${e.message}", e)
+            try {
+                Log.e(TAG, "Error parsing data URI: ${e.message}", e)
+            } catch (_: Throwable) {}
             return null
         }
+    }
+
+    private fun decodeBase64(data: String): ByteArray {
+        val cleanData = data.trim()
+        try {
+            return java.util.Base64.getMimeDecoder().decode(cleanData)
+        } catch (_: Throwable) {}
+
+        try {
+            return java.util.Base64.getDecoder().decode(cleanData)
+        } catch (_: Throwable) {}
+
+        try {
+            val res = android.util.Base64.decode(cleanData, android.util.Base64.DEFAULT)
+            if (res != null) return res
+        } catch (_: Throwable) {}
+
+        return ByteArray(0)
     }
 
     fun guessExtensionFromMimeType(mimeType: String): String {
