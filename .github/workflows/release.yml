@@ -24,6 +24,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-home-cache-cleanup: true
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
@@ -33,7 +38,7 @@ jobs:
       - name: Build Release APK
         run: |
           cd bigeyes-app
-          ./gradlew assembleRelease --stacktrace
+          ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Print Test Failures if any
         if: failure()
