@@ -105,4 +105,37 @@ class SsdpScannerTest {
         assertEquals("uuid-192.168.1.120", device?.id) // Fallback UDN
         assertEquals("http://192.168.1.120:8080/ctrl/avt", device?.avTransportControlUrl)
     }
+
+    @Test
+    fun testKodiXmlParsing() {
+        val kodiXml = """<?xml version="1.0" encoding="UTF-8"?>
+            <root configId="9477" xmlns="urn:schemas-upnp-org:device-1-0" xmlns:dlna="urn:schemas-dlna-org:device-1-0">
+              <device>
+                <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+                <friendlyName>Kodi (HP)</friendlyName>
+                <UDN>uuid:59928482-eb55-6226-d1a4-45484596f792</UDN>
+                <serviceList>
+                  <service>
+                    <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+                    <controlURL>/AVTransport/59928482-eb55-6226-d1a4-45484596f792/control.xml</controlURL>
+                  </service>
+                  <service>
+                    <serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>
+                    <controlURL>/RenderingControl/59928482-eb55-6226-d1a4-45484596f792/control.xml</controlURL>
+                  </service>
+                </serviceList>
+              </device>
+            </root>
+        """.trimIndent()
+
+        val locationUrl = "http://192.168.68.236:1700/"
+        val device = SsdpScanner.parseDeviceXml(kodiXml, locationUrl)
+
+        assertNotNull(device)
+        assertEquals("Kodi (HP)", device?.name)
+        assertEquals("192.168.68.236", device?.ip)
+        assertEquals("uuid:59928482-eb55-6226-d1a4-45484596f792", device?.id)
+        assertEquals("http://192.168.68.236:1700/AVTransport/59928482-eb55-6226-d1a4-45484596f792/control.xml", device?.avTransportControlUrl)
+        assertEquals("http://192.168.68.236:1700/RenderingControl/59928482-eb55-6226-d1a4-45484596f792/control.xml", device?.renderingControlUrl)
+    }
 }

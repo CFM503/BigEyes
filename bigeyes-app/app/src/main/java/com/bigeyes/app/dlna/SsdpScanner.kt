@@ -1,5 +1,6 @@
 package com.bigeyes.app.dlna
 
+import android.util.Log
 import com.bigeyes.app.model.DlnaDevice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -122,11 +123,24 @@ class SsdpScanner {
         return msg.toByteArray(Charsets.UTF_8)
     }
 
-    suspend fun scan(timeoutMs: Long = 2500L): List<DlnaDevice> = withContext(Dispatchers.IO) {
+    suspend fun scan(context: android.content.Context? = null, timeoutMs: Long = 2500L): List<DlnaDevice> = withContext(Dispatchers.IO) {
         val locations = Collections.synchronizedSet(mutableSetOf<String>())
         var socket: DatagramSocket? = null
+        var multicastLock: android.net.wifi.WifiManager.MulticastLock? = null
 
         try {
+            if (context != null) {
+                try {
+                    val wm = context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                    multicastLock = wm?.createMulticastLock("BigEyes:SsdpScannerLock")?.apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to acquire MulticastLock: ${e.message}")
+                }
+            }
+
             socket = DatagramSocket()
             socket.soTimeout = 400
             val group = InetAddress.getByName(SSDP_ADDR)
@@ -162,6 +176,12 @@ class SsdpScanner {
                 socket?.close()
             } catch (_: Exception) {
             }
+            try {
+                if (multicastLock?.isHeld == true) {
+                    multicastLock.release()
+                }
+            } catch (_: Exception) {
+            }
         }
 
         val devices = mutableListOf<DlnaDevice>()
@@ -176,6 +196,41 @@ class SsdpScanner {
         return@withContext devices
     }
 
+    suspend fun probeLocation(input: String): DlnaDevice? = withContext(Dispatchers.IO) {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) return@withContext null
+
+        val candidateUrls = mutableListOf<String>()
+        if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+            candidateUrls.add(trimmed)
+            if (!trimmed.endsWith("/")) {
+                candidateUrls.add("$trimmed/")
+            }
+        } else {
+            // e.g. 192.168.68.236:1700 or 192.168.68.236
+            val hasPort = trimmed.contains(":")
+            if (hasPort) {
+                candidateUrls.add("http://$trimmed/")
+                candidateUrls.add("http://$trimmed/description.xml")
+                candidateUrls.add("http://$trimmed/rootDesc.xml")
+            } else {
+                candidateUrls.add("http://$trimmed:1700/")
+                candidateUrls.add("http://$trimmed:1498/")
+                candidateUrls.add("http://$trimmed:8080/description.xml")
+                candidateUrls.add("http://$trimmed:8088/description.xml")
+                candidateUrls.add("http://$trimmed:2869/upnphost/udhisapi.dll?content=uuid:root")
+            }
+        }
+
+        for (url in candidateUrls) {
+            val dev = fetchDeviceInfo(url)
+            if (dev != null && !dev.avTransportControlUrl.isNullOrBlank()) {
+                return@withContext dev
+            }
+        }
+        return@withContext null
+    }
+
     private fun extractLocation(response: String): String? {
         for (line in response.lines()) {
             if (line.uppercase().startsWith("LOCATION:")) {
@@ -185,7 +240,7 @@ class SsdpScanner {
         return null
     }
 
-    private fun fetchDeviceInfo(locationUrl: String): DlnaDevice? {
+    fun fetchDeviceInfo(locationUrl: String): DlnaDevice? {
         return try {
             val request = Request.Builder().url(locationUrl).build()
             httpClient.newCall(request).execute().use { resp ->

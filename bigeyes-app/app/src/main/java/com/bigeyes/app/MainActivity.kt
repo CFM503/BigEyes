@@ -543,8 +543,14 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this@MainActivity, "正在扫描局域网电视设备...", Toast.LENGTH_SHORT).show()
             val devices = dlnaManager.scanOnce()
 
-            if (devices.size > 1) {
-                DeviceSelectDialog(this@MainActivity, devices) { selectedDevice ->
+            if (devices.isEmpty()) {
+                showManualDeviceDialog(candidate)
+            } else if (devices.size > 1) {
+                DeviceSelectDialog(
+                    context = this@MainActivity,
+                    devices = devices,
+                    onManualAdd = { showManualDeviceDialog(candidate) }
+                ) { selectedDevice ->
                     executeCast(candidate, selectedDevice.id)
                 }.show()
             } else {
@@ -552,6 +558,39 @@ class MainActivity : AppCompatActivity() {
                 executeCast(candidate, soleId)
             }
         }
+    }
+
+    private fun showManualDeviceDialog(candidate: VideoCandidate) {
+        val input = EditText(this).apply {
+            hint = "例如 192.168.68.236:1700"
+            setSingleLine()
+            setPadding(48, 32, 48, 32)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("手动输入投屏设备 IP")
+            .setMessage("未自动搜到设备（可能受路由器组播限制）。请输入电脑 Kodi 或电视的 IP 与端口进行直连：")
+            .setView(input)
+            .setPositiveButton("连接并投屏") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isNotEmpty()) {
+                    val dlnaManager = CastingForegroundService.instance?.dlnaManager
+                        ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also { fallbackDlnaManager = it }
+
+                    Toast.makeText(this@MainActivity, "正在连接 $text ...", Toast.LENGTH_SHORT).show()
+                    lifecycleScope.launch {
+                        val dev = dlnaManager.addManualDevice(text)
+                        if (dev != null) {
+                            Toast.makeText(this@MainActivity, "已连接 ${dev.name}，正在开播...", Toast.LENGTH_SHORT).show()
+                            executeCast(candidate, dev.id)
+                        } else {
+                            Toast.makeText(this@MainActivity, "连接失败：无法解析 $text 的 DLNA 协议", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun executeCast(candidate: VideoCandidate, targetDeviceId: String?) {

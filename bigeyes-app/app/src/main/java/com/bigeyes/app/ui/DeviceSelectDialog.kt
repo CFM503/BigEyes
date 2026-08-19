@@ -15,6 +15,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 class DeviceSelectDialog(
     private val context: Context,
     private val devices: List<DlnaDevice>,
+    private val onManualAdd: (() -> Unit)? = null,
     private val onSelected: (DlnaDevice) -> Unit
 ) {
     fun show() {
@@ -22,11 +23,18 @@ class DeviceSelectDialog(
         val adapter = DeviceAdapter(context, devices)
         listView.adapter = adapter
 
-        val dialog = MaterialAlertDialogBuilder(context)
+        val builder = MaterialAlertDialogBuilder(context)
             .setTitle(R.string.select_device_title)
             .setView(listView)
             .setNegativeButton("取消", null)
-            .create()
+
+        if (onManualAdd != null) {
+            builder.setNeutralButton("手动输入 IP") { _, _ ->
+                onManualAdd.invoke()
+            }
+        }
+
+        val dialog = builder.create()
 
         listView.setOnItemClickListener { _, _, position, _ ->
             dialog.dismiss()

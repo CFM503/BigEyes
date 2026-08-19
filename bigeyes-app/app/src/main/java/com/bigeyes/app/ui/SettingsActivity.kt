@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -23,6 +24,7 @@ import com.bigeyes.app.service.CastingForegroundService
 import com.bigeyes.app.updater.UpdateManager
 import com.bigeyes.app.utils.NetworkUtils
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -46,6 +48,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var tvDlnaDeviceList: TextView
     private lateinit var btnRescanDlna: Button
+    private lateinit var btnAddManualDevice: Button
 
     private lateinit var tvCacheInfo: TextView
     private lateinit var btnClearCache: Button
@@ -89,6 +92,7 @@ class SettingsActivity : AppCompatActivity() {
 
         tvDlnaDeviceList = findViewById(R.id.tv_dlna_device_list)
         btnRescanDlna = findViewById(R.id.btn_rescan_dlna)
+        btnAddManualDevice = findViewById(R.id.btn_add_manual_device)
 
         tvCacheInfo = findViewById(R.id.tv_cache_info)
         btnClearCache = findViewById(R.id.btn_clear_cache)
@@ -141,6 +145,10 @@ class SettingsActivity : AppCompatActivity() {
 
         btnRescanDlna.setOnClickListener {
             performDlnaScan()
+        }
+
+        btnAddManualDevice.setOnClickListener {
+            showAddManualDeviceDialog()
         }
 
         btnIgnoreBattery.setOnClickListener {
@@ -247,6 +255,45 @@ class SettingsActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 tvDlnaDeviceList.text = "扫描出错: ${e.message}"
+            }
+        }
+    }
+
+    private fun showAddManualDeviceDialog() {
+        val input = EditText(this).apply {
+            hint = "例如: 192.168.68.236:1700"
+            setSingleLine()
+            setPadding(48, 32, 48, 32)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("手动添加 DLNA 设备 (IP直连)")
+            .setMessage("输入设备的 IP 与端口（如 Kodi 为 192.168.68.236:1700），可直接绕过路由器组播限制：")
+            .setView(input)
+            .setPositiveButton("连接并保存") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isNotEmpty()) {
+                    performManualDeviceAdd(text)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun performManualDeviceAdd(ipOrUrl: String) {
+        val service = CastingForegroundService.instance
+        val dlnaManager = service?.dlnaManager ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also { fallbackDlnaManager = it }
+
+        tvDlnaDeviceList.text = "正在尝试直连 $ipOrUrl 并解析 DLNA 协议描述..."
+        Toast.makeText(this, "正在连接设备...", Toast.LENGTH_SHORT).show()
+
+        lifecycleScope.launch {
+            val dev = dlnaManager.addManualDevice(ipOrUrl)
+            if (dev != null) {
+                loadDlnaDeviceList()
+                Toast.makeText(this@SettingsActivity, "已成功添加并选中: ${dev.name}", Toast.LENGTH_LONG).show()
+            } else {
+                tvDlnaDeviceList.text = "直连 $ipOrUrl 失败！\n请确认 IP 和端口是否正确（手机浏览器能否打开 http://$ipOrUrl/）。"
+                Toast.makeText(this@SettingsActivity, "添加失败：未能获取到 DLNA 描述", Toast.LENGTH_SHORT).show()
             }
         }
     }
