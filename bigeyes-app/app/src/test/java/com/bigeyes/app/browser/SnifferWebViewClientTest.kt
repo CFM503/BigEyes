@@ -40,5 +40,10 @@ class SnifferWebViewClientTest {
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/segment_0.ts"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/chunk.m4s"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/enc.key"))
+
+        // Known advertisement stream patterns should be strictly ignored
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://adservice.google.com/hls/ad.m3u8"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://cdn.adv.com/guanggao/index.m3u8"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://union.dsp.com/creative/adv.m3u8"))
     }
 }

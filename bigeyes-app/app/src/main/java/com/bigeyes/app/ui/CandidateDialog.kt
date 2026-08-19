@@ -9,12 +9,14 @@ import android.widget.BaseAdapter
 import android.widget.ListView
 import android.widget.TextView
 import com.bigeyes.app.R
+import com.bigeyes.app.browser.CandidateManager
 import com.bigeyes.app.model.VideoCandidate
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class CandidateDialog(
     private val context: Context,
     private val candidates: List<VideoCandidate>,
+    private val onClearRequested: (() -> Unit)? = null,
     private val onSelected: (VideoCandidate) -> Unit
 ) {
     fun show() {
@@ -26,6 +28,10 @@ class CandidateDialog(
             .setTitle(R.string.select_candidate_title)
             .setView(listView)
             .setNegativeButton("取消", null)
+            .setNeutralButton("清空重探") { _, _ ->
+                CandidateManager.clear()
+                onClearRequested?.invoke()
+            }
             .create()
 
         listView.setOnItemClickListener { _, _, position, _ ->
@@ -53,7 +59,14 @@ class CandidateDialog(
             val tvUrl = view.findViewById<TextView>(R.id.tv_item_url)
             val tvTime = view.findViewById<TextView>(R.id.tv_item_time)
 
-            tvTitle.text = candidate.displayTitle
+            if (position == 0) {
+                tvTitle.text = "【推荐 / 最新】${candidate.displayTitle}"
+                tvTitle.setTextColor(context.getColor(R.color.brand_primary))
+            } else {
+                tvTitle.text = "【早期候选】${candidate.displayTitle}"
+                tvTitle.setTextColor(context.getColor(R.color.black))
+            }
+
             tvUrl.text = candidate.url
             tvTime.text = "嗅探时间: ${candidate.formattedTime}"
 

@@ -25,6 +25,24 @@ object VideoSnifferHelper {
         ".json", ".xml", ".html", ".htm", ".php", ".jsp", ".asp", ".aspx"
     )
 
+    // Ad keyword patterns to eliminate advertisement video streams
+    private val AD_KEYWORDS = listOf(
+        "ad.m3u8", "adv.m3u8", "guanggao", "/ad/", "/ads/", "/adv/", "/advert/",
+        "adservice", "adsystem", "union", "dsp.", "creative", "popunder",
+        "commercial", "googleads", "doubleclick", "tanx.com", "umeng.com"
+    )
+
+    fun isLikelyAdUrl(rawUrl: String): Boolean {
+        if (rawUrl.isBlank()) return false
+        val lower = rawUrl.lowercase()
+        for (kw in AD_KEYWORDS) {
+            if (lower.contains(kw)) {
+                return true
+            }
+        }
+        return false
+    }
+
     fun isVideoStreamUrl(rawUrl: String): Boolean {
         if (rawUrl.isBlank()) return false
         val lower = rawUrl.lowercase()
@@ -34,23 +52,28 @@ object VideoSnifferHelper {
             return false
         }
 
+        // 2. Filter out known advertisement stream URLs
+        if (isLikelyAdUrl(lower)) {
+            return false
+        }
+
         val pathOnly = lower.substringBefore('?').substringBefore('#')
 
-        // 2. Ignore non-media static assets
+        // 3. Ignore non-media static assets
         for (ign in IGNORED_EXTENSIONS) {
             if (pathOnly.endsWith(ign)) {
                 return false
             }
         }
 
-        // 3. Strictly ignore individual segment chunks (TS/M4S/Key)
+        // 4. Strictly ignore individual segment chunks (TS/M4S/Key)
         for (seg in SEGMENT_EXTENSIONS) {
             if (pathOnly.endsWith(seg) || lower.contains("$seg?") || lower.contains("$seg#") || lower.contains("$seg&")) {
                 return false
             }
         }
 
-        // 4. Match playable video extensions
+        // 5. Match playable video extensions
         for (ext in PLAYABLE_VIDEO_EXTENSIONS) {
             if (pathOnly.endsWith(ext) || lower.contains("$ext?") || lower.contains("$ext#") || lower.contains("$ext&") || lower.contains("$ext/")) {
                 return true
