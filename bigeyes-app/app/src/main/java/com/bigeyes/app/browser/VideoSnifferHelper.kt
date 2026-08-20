@@ -146,14 +146,17 @@ object VideoSnifferHelper {
     fun getInjectionScript(): String {
         return """
             (function() {
-                if (window.__bigeyes_sniffer_installed__) return;
-                window.__bigeyes_sniffer_installed__ = true;
+                window.__bigeyes_recorded_streams__ = window.__bigeyes_recorded_streams__ || [];
 
-                function reportVideo(url, title) {
+                function recordAndReport(url, title) {
                     if (!url || typeof url !== 'string') return;
-                    if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('javascript:')) return;
+                    if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('javascript:') || url.startsWith('about:')) return;
                     if (url.startsWith('//')) url = window.location.protocol + url;
                     if (!url.startsWith('http://') && !url.startsWith('https://')) return;
+
+                    if (window.__bigeyes_recorded_streams__.indexOf(url) === -1) {
+                        window.__bigeyes_recorded_streams__.push(url);
+                    }
 
                     var cleanTitle = title || document.title || 'Video Stream';
                     var ref = window.location.href;
@@ -166,19 +169,32 @@ object VideoSnifferHelper {
                 function isVideoUrl(u) {
                     if (!u || typeof u !== 'string') return false;
                     var l = u.toLowerCase();
+                    if (l.startsWith('blob:') || l.startsWith('data:') || l.startsWith('javascript:')) return false;
                     return l.indexOf('.m3u8') !== -1 || l.indexOf('.mp4') !== -1 ||
                            l.indexOf('.flv') !== -1 || l.indexOf('/hls/') !== -1 ||
-                           l.indexOf('playlist') !== -1 || l.indexOf('url=http') !== -1;
+                           l.indexOf('type=m3u8') !== -1 || l.indexOf('format=hls') !== -1 ||
+                           l.indexOf('format=m3u8') !== -1 || l.indexOf('url=http') !== -1;
                 }
+
+                // If already installed, just trigger an immediate scan & report
+                if (window.__bigeyes_sniffer_installed__) {
+                    if (window.__bigeyes_recorded_streams__ && window.__bigeyes_recorded_streams__.length > 0) {
+                        for (var i = 0; i < window.__bigeyes_recorded_streams__.length; i++) {
+                            recordAndReport(window.__bigeyes_recorded_streams__[i], document.title);
+                        }
+                    }
+                    return;
+                }
+                window.__bigeyes_sniffer_installed__ = true;
 
                 // 1. Hook HTMLMediaElement & HTMLVideoElement
                 try {
                     var origPlay = HTMLMediaElement.prototype.play;
                     HTMLMediaElement.prototype.play = function() {
                         if (this.src && isVideoUrl(this.src)) {
-                            reportVideo(this.src, document.title);
+                            recordAndReport(this.src, document.title);
                         } else if (this.currentSrc && isVideoUrl(this.currentSrc)) {
-                            reportVideo(this.currentSrc, document.title);
+                            recordAndReport(this.currentSrc, document.title);
                         }
                         return origPlay.apply(this, arguments);
                     };
@@ -189,7 +205,7 @@ object VideoSnifferHelper {
                         Object.defineProperty(HTMLMediaElement.prototype, 'src', {
                             set: function(val) {
                                 if (isVideoUrl(val)) {
-                                    reportVideo(val, document.title);
+                                    recordAndReport(val, document.title);
                                 }
                                 return origSrcSet.apply(this, arguments);
                             },
@@ -204,7 +220,7 @@ object VideoSnifferHelper {
                     if (window.Hls && window.Hls.prototype && window.Hls.prototype.loadSource) {
                         var origLoad = window.Hls.prototype.loadSource;
                         window.Hls.prototype.loadSource = function(url) {
-                            reportVideo(url, document.title);
+                            recordAndReport(url, document.title);
                             return origLoad.apply(this, arguments);
                         };
                     }
@@ -216,7 +232,7 @@ object VideoSnifferHelper {
                     window.fetch = function(input, init) {
                         var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
                         if (isVideoUrl(url)) {
-                            reportVideo(url, document.title);
+                            recordAndReport(url, document.title);
                         }
                         return origFetch.apply(this, arguments);
                     };
@@ -227,7 +243,7 @@ object VideoSnifferHelper {
                     var origOpen = XMLHttpRequest.prototype.open;
                     XMLHttpRequest.prototype.open = function(method, url) {
                         if (isVideoUrl(url)) {
-                            reportVideo(url, document.title);
+                            recordAndReport(url, document.title);
                         }
                         return origOpen.apply(this, arguments);
                     };
@@ -235,22 +251,34 @@ object VideoSnifferHelper {
 
                 // 5. Periodic & MutationObserver Scan
                 function scanNow() {
-                    var videos = document.querySelectorAll('video');
-                    for (var i = 0; i < videos.length; i++) {
-                        var v = videos[i];
-                        if (v.src && isVideoUrl(v.src)) reportVideo(v.src, document.title);
-                        if (v.currentSrc && isVideoUrl(v.currentSrc)) reportVideo(v.currentSrc, document.title);
-                        var sources = v.querySelectorAll('source');
-                        for (var j = 0; j < sources.length; j++) {
-                            if (sources[j].src && isVideoUrl(sources[j].src)) reportVideo(sources[j].src, document.title);
+                    // Check recorded streams
+                    if (window.__bigeyes_recorded_streams__ && window.__bigeyes_recorded_streams__.length > 0) {
+                        for (var r = 0; r < window.__bigeyes_recorded_streams__.length; r++) {
+                            recordAndReport(window.__bigeyes_recorded_streams__[r], document.title);
                         }
                     }
 
-                    if (window.art && window.art.url && isVideoUrl(window.art.url)) reportVideo(window.art.url, document.title);
-                    if (window.artplayer && window.artplayer.url && isVideoUrl(window.artplayer.url)) reportVideo(window.artplayer.url, document.title);
-                    if (window.dp && window.dp.video && window.dp.video.src && isVideoUrl(window.dp.video.src)) reportVideo(window.dp.video.src, document.title);
-                    if (window.hls && window.hls.url && isVideoUrl(window.hls.url)) reportVideo(window.hls.url, document.title);
-                    if (window.player && window.player.src && isVideoUrl(window.player.src)) reportVideo(window.player.src, document.title);
+                    var videos = document.querySelectorAll('video');
+                    for (var i = 0; i < videos.length; i++) {
+                        var v = videos[i];
+                        if (v.src && isVideoUrl(v.src)) recordAndReport(v.src, document.title);
+                        if (v.currentSrc && isVideoUrl(v.currentSrc)) recordAndReport(v.currentSrc, document.title);
+                        var sources = v.querySelectorAll('source');
+                        for (var j = 0; j < sources.length; j++) {
+                            if (sources[j].src && isVideoUrl(sources[j].src)) recordAndReport(sources[j].src, document.title);
+                        }
+                    }
+
+                    if (window.art && window.art.url && isVideoUrl(window.art.url)) recordAndReport(window.art.url, document.title);
+                    if (window.artplayer && window.artplayer.url && isVideoUrl(window.artplayer.url)) recordAndReport(window.artplayer.url, document.title);
+                    if (window.dp && window.dp.video && window.dp.video.src && isVideoUrl(window.dp.video.src)) recordAndReport(window.dp.video.src, document.title);
+                    if (window.dp && window.dp.video && window.dp.video.url && isVideoUrl(window.dp.video.url)) recordAndReport(window.dp.video.url, document.title);
+                    if (window.hls && window.hls.url && isVideoUrl(window.hls.url)) recordAndReport(window.hls.url, document.title);
+                    if (window.player && window.player.src && isVideoUrl(window.player.src)) recordAndReport(window.player.src, document.title);
+                    if (window.player && window.player.url && isVideoUrl(window.player.url)) recordAndReport(window.player.url, document.title);
+                    if (window.ckplayer && window.ckplayer.url && isVideoUrl(window.ckplayer.url)) recordAndReport(window.ckplayer.url, document.title);
+                    if (window.xgplayer && window.xgplayer.src && isVideoUrl(window.xgplayer.src)) recordAndReport(window.xgplayer.src, document.title);
+                    if (window.xgplayer && window.xgplayer.url && isVideoUrl(window.xgplayer.url)) recordAndReport(window.xgplayer.url, document.title);
                 }
 
                 scanNow();
@@ -267,7 +295,7 @@ object VideoSnifferHelper {
     }
 
     /**
-     * Active scanner invoked on demand (e.g. when user clicks "投屏" button).
+     * Active scanner invoked on demand (e.g. when user clicks "投屏" button or "清空重探").
      */
     fun scanVideoInPage(webView: WebView, callback: (List<String>) -> Unit) {
         val script = """
@@ -275,13 +303,18 @@ object VideoSnifferHelper {
                 var list = [];
                 function add(u) {
                     if (!u || typeof u !== 'string') return;
-                    if (u.startsWith('blob:') || u.startsWith('data:') || u.startsWith('javascript:')) return;
+                    if (u.startsWith('blob:') || u.startsWith('data:') || u.startsWith('javascript:') || u.startsWith('about:')) return;
                     if (u.startsWith('//')) u = window.location.protocol + u;
                     if (!u.startsWith('http://') && !u.startsWith('https://')) return;
                     if (list.indexOf(u) === -1) list.push(u);
                 }
 
-                // Scan all videos
+                // 1. Check recorded streams in memory
+                if (window.__bigeyes_recorded_streams__ && Array.isArray(window.__bigeyes_recorded_streams__)) {
+                    window.__bigeyes_recorded_streams__.forEach(function(u) { add(u); });
+                }
+
+                // 2. Scan all video elements
                 var videos = document.querySelectorAll('video');
                 videos.forEach(function(v) {
                     if (v.src) add(v.src);
@@ -289,20 +322,27 @@ object VideoSnifferHelper {
                     v.querySelectorAll('source').forEach(function(s) { if (s.src) add(s.src); });
                 });
 
-                // Scan JS player instances
+                // 3. Scan JS player instances
                 if (window.art && window.art.url) add(window.art.url);
                 if (window.artplayer && window.artplayer.url) add(window.artplayer.url);
                 if (window.dp && window.dp.video && window.dp.video.src) add(window.dp.video.src);
+                if (window.dp && window.dp.video && window.dp.video.url) add(window.dp.video.url);
                 if (window.hls && window.hls.url) add(window.hls.url);
                 if (window.player && window.player.src) add(window.player.src);
+                if (window.player && window.player.url) add(window.player.url);
+                if (window.ckplayer && window.ckplayer.url) add(window.ckplayer.url);
+                if (window.xgplayer && window.xgplayer.src) add(window.xgplayer.src);
+                if (window.xgplayer && window.xgplayer.url) add(window.xgplayer.url);
 
-                // Scan iframes
+                // 4. Scan iframes
                 var iframes = document.querySelectorAll('iframe');
                 iframes.forEach(function(f) {
                     if (f.src) add(f.src);
+                    var dataSrc = f.getAttribute('data-src');
+                    if (dataSrc) add(dataSrc);
                 });
 
-                // Scan HTML text for m3u8 and mp4 patterns
+                // 5. Scan HTML text for m3u8 and mp4 patterns
                 var html = document.documentElement.innerHTML;
                 var regex = /https?:\/\/[^\s"'<>]+\.(?:m3u8|mp4)[^\s"'<>]*/gi;
                 var matches = html.match(regex);

@@ -533,9 +533,37 @@ class MainActivity : AppCompatActivity() {
         if (candidates.size == 1) {
             pickDeviceAndCast(candidates.first())
         } else {
-            CandidateDialog(this, candidates) { selectedCandidate ->
-                pickDeviceAndCast(selectedCandidate)
-            }.show()
+            CandidateDialog(
+                context = this,
+                candidates = candidates,
+                onClearRequested = {
+                    Toast.makeText(this, "已清空候选，正在重新探测当前播放视频...", Toast.LENGTH_SHORT).show()
+                    VideoSnifferHelper.scanVideoInPage(webView) { scannedUrls ->
+                        if (scannedUrls.isNotEmpty()) {
+                            val pageTitle = webView.title ?: "在线视频"
+                            val userAgent = webView.settings.userAgentString
+                            val ref = webView.url
+                            for (url in scannedUrls) {
+                                val candidate = VideoCandidate(
+                                    url = url,
+                                    referer = ref,
+                                    userAgent = userAgent,
+                                    cookie = CookieManager.getInstance().getCookie(url),
+                                    title = pageTitle,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                                CandidateManager.addCandidate(candidate)
+                            }
+                            Toast.makeText(this, "重新捕获到 ${scannedUrls.size} 个视频源", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "未探测到正在播放的视频流，请播放后重试", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onSelected = { selectedCandidate ->
+                    pickDeviceAndCast(selectedCandidate)
+                }
+            ).show()
         }
     }
 
