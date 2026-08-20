@@ -1,5 +1,6 @@
 package com.bigeyes.app.browser
 
+import android.util.Log
 import android.webkit.WebView
 import java.net.URLDecoder
 
@@ -335,6 +336,82 @@ object VideoSnifferHelper {
                 }
             } catch (_: Exception) {}
             callback(resultList.distinct())
+        }
+    }
+
+    /**
+     * Attempts to find and trigger the next episode button/link on the current web page,
+     * or computes and navigates to the next episode URL.
+     */
+    fun triggerNextEpisode(webView: WebView, callback: ((Boolean) -> Unit)? = null) {
+        val script = """
+            (function() {
+                // 1. Try finding explicit "Next Episode" buttons or links
+                var nextKeywords = ['下一集', '下集', '下一话', '下一期', '后一集', 'next'];
+                var clickableElements = document.querySelectorAll('a, button, div, span, li');
+                for (var i = 0; i < clickableElements.length; i++) {
+                    var el = clickableElements[i];
+                    var text = (el.innerText || el.textContent || '').trim().toLowerCase();
+                    for (var k = 0; k < nextKeywords.length; k++) {
+                        if (text === nextKeywords[k] || (text.length <= 8 && text.indexOf(nextKeywords[k]) !== -1)) {
+                            el.click();
+                            return JSON.stringify({ success: true, method: 'keyword_click', text: text });
+                        }
+                    }
+                }
+
+                // 2. Try finding the active/current episode element and click its next sibling
+                var activeSelectors = ['.active', '.current', '.on', '.selected', '.cur'];
+                for (var s = 0; s < activeSelectors.length; s++) {
+                    var activeEl = document.querySelector(activeSelectors[s]);
+                    if (activeEl) {
+                        var nextSibling = activeEl.nextElementSibling;
+                        if (nextSibling) {
+                            var clickTarget = nextSibling.querySelector('a, button') || nextSibling;
+                            clickTarget.click();
+                            return JSON.stringify({ success: true, method: 'sibling_click' });
+                        } else if (activeEl.parentElement && activeEl.parentElement.nextElementSibling) {
+                            var parentNext = activeEl.parentElement.nextElementSibling;
+                            var clickTarget = parentNext.querySelector('a, button') || parentNext;
+                            clickTarget.click();
+                            return JSON.stringify({ success: true, method: 'parent_sibling_click' });
+                        }
+                    }
+                }
+
+                // 3. Try URL pattern replacement (e.g. /play/123-1-1.html -> /play/123-1-2.html or ?ep=1 -> ?ep=2)
+                var href = window.location.href;
+                var patterns = [
+                    /([-_/])(\d+)(\.html?)/i,
+                    /([-_/])(\d+)(\/|$)/i,
+                    /([?&](?:ep|episode|p|index|num)=)(\d+)/i
+                ];
+
+                for (var p = 0; p < patterns.length; p++) {
+                    var match = href.match(patterns[p]);
+                    if (match) {
+                        var prefix = match[1];
+                        var num = parseInt(match[2], 10);
+                        var suffix = match[3] || '';
+                        if (!isNaN(num)) {
+                            var nextNum = num + 1;
+                            var nextUrl = href.replace(patterns[p], prefix + nextNum + suffix);
+                            if (nextUrl !== href) {
+                                window.location.href = nextUrl;
+                                return JSON.stringify({ success: true, method: 'url_increment', url: nextUrl });
+                            }
+                        }
+                    }
+                }
+
+                return JSON.stringify({ success: false });
+            })();
+        """.trimIndent()
+
+        webView.evaluateJavascript(script) { jsonResult ->
+            val success = jsonResult != null && jsonResult.contains("\"success\":true")
+            Log.i("VideoSnifferHelper", "Trigger next episode result: $jsonResult (success=$success)")
+            callback?.invoke(success)
         }
     }
 }

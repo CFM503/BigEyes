@@ -93,6 +93,30 @@ class DlnaController {
         return ok
     }
 
+    suspend fun setNextAvTransportUri(
+        controlUrl: String,
+        uri: String,
+        title: String = "BigEyes Video Next"
+    ): Boolean {
+        val escapedTitle = TextUtils.htmlEncode(title)
+        val didlMetadata = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
+                "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
+                "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
+                "<item id=\"0\" parentID=\"-1\" restricted=\"1\">" +
+                "<dc:title>$escapedTitle</dc:title>" +
+                "<upnp:class>object.item.videoItem</upnp:class>" +
+                "<res protocolInfo=\"http-get:*:application/vnd.apple.mpegurl:*\">$uri</res>" +
+                "</item></DIDL-Lite>"
+
+        val args = mapOf(
+            "InstanceID" to "0",
+            "NextURI" to uri,
+            "NextURIMetaData" to didlMetadata
+        )
+        val (ok, _) = sendSoapAction(controlUrl, SERVICE_AV_TRANSPORT, "SetNextAVTransportURI", args)
+        return ok
+    }
+
     suspend fun play(controlUrl: String, speed: String = "1"): Boolean {
         val args = mapOf(
             "InstanceID" to "0",
@@ -111,6 +135,18 @@ class DlnaController {
     suspend fun stop(controlUrl: String): Boolean {
         val args = mapOf("InstanceID" to "0")
         val (ok, _) = sendSoapAction(controlUrl, SERVICE_AV_TRANSPORT, "Stop", args)
+        return ok
+    }
+
+    suspend fun next(controlUrl: String): Boolean {
+        val args = mapOf("InstanceID" to "0")
+        val (ok, _) = sendSoapAction(controlUrl, SERVICE_AV_TRANSPORT, "Next", args)
+        return ok
+    }
+
+    suspend fun previous(controlUrl: String): Boolean {
+        val args = mapOf("InstanceID" to "0")
+        val (ok, _) = sendSoapAction(controlUrl, SERVICE_AV_TRANSPORT, "Previous", args)
         return ok
     }
 

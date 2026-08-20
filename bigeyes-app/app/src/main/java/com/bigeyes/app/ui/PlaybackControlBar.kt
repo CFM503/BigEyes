@@ -22,7 +22,10 @@ class PlaybackControlBar(
     private val btnPlayPause: Button = container.findViewById(R.id.btn_play_pause)
     private val btnRewind: Button = container.findViewById(R.id.btn_rewind)
     private val btnForward: Button = container.findViewById(R.id.btn_forward)
+    private val btnNextEpisode: Button? = container.findViewById(R.id.btn_next_episode)
     private val btnStop: Button = container.findViewById(R.id.btn_stop)
+
+    var onNextEpisodeListener: (() -> Unit)? = null
 
     private var pollJob: Job? = null
     private var isUserSeeking = false
@@ -35,6 +38,10 @@ class PlaybackControlBar(
     }
 
     private fun setupListeners() {
+        btnNextEpisode?.setOnClickListener {
+            onNextEpisodeListener?.invoke()
+        }
+
         btnPlayPause.setOnClickListener {
             val service = CastingForegroundService.instance ?: return@setOnClickListener
             val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener

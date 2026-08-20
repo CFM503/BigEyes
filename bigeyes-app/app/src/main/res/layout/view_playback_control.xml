@@ -118,12 +118,22 @@
             android:textColor="@color/white" />
 
         <Button
+            android:id="@+id/btn_next_episode"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="下一集"
+            android:textSize="12sp"
+            android:layout_marginStart="4dp"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:textColor="@color/brand_primary" />
+
+        <Button
             android:id="@+id/btn_stop"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
             android:text="停止"
             android:textSize="12sp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="4dp"
             style="@style/Widget.MaterialComponents.Button.TextButton"
             android:textColor="#FF5252" />
     </LinearLayout>

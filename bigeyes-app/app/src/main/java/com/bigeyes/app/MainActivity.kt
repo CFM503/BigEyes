@@ -477,6 +477,10 @@ class MainActivity : AppCompatActivity() {
         btnCast.setOnClickListener {
             handleCastButtonClick()
         }
+
+        playbackControlBar.onNextEpisodeListener = {
+            triggerNextEpisodeAndCast()
+        }
     }
 
     private fun updateCastBadge(count: Int) {
@@ -611,6 +615,54 @@ class MainActivity : AppCompatActivity() {
             } else {
                 val err = devName ?: "未找到可用的 DLNA 电视设备"
                 Toast.makeText(this@MainActivity, "投屏失败: $err", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        CastingForegroundService.instance?.onAutoNextEpisodeListener = {
+            runOnUiThread {
+                triggerNextEpisodeAndCast()
+            }
+        }
+    }
+
+    private var isAutoAdvancing = false
+
+    private fun triggerNextEpisodeAndCast() {
+        if (isAutoAdvancing) return
+        isAutoAdvancing = true
+
+        Toast.makeText(this, "正在为您切换下一集并投屏...", Toast.LENGTH_SHORT).show()
+        val currentTargetId = CastingForegroundService.instance?.dlnaManager?.getSelectedDevice()?.id
+
+        CandidateManager.clear()
+
+        var candidateListener: ((List<VideoCandidate>) -> Unit)? = null
+        candidateListener = { candidates ->
+            if (candidates.isNotEmpty() && isAutoAdvancing) {
+                isAutoAdvancing = false
+                candidateListener?.let { CandidateManager.removeListener(it) }
+                val newCandidate = candidates.first()
+                runOnUiThread {
+                    Toast.makeText(this, "已获取下一集: ${newCandidate.displayTitle}，正在推流...", Toast.LENGTH_SHORT).show()
+                    executeCast(newCandidate, currentTargetId)
+                }
+            }
+        }
+        CandidateManager.addListener(candidateListener)
+
+        VideoSnifferHelper.triggerNextEpisode(webView) { success ->
+            if (!success) {
+                Log.d(TAG, "No next episode element found via DOM, waiting for user or fallback scan...")
+            }
+            lifecycleScope.launch {
+                delay(15000L)
+                if (isAutoAdvancing) {
+                    isAutoAdvancing = false
+                    candidateListener?.let { CandidateManager.removeListener(it) }
+                }
             }
         }
     }

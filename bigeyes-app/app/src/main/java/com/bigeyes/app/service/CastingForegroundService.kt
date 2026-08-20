@@ -262,6 +262,7 @@ class CastingForegroundService : Service() {
                             device = devName,
                             state = "playing"
                         )
+                        startPlaybackMonitor(ctrlUrl)
                         onResult?.invoke(true, devName)
                     } else {
                         onResult?.invoke(false, "无法向电视推送播放地址")
@@ -283,7 +284,45 @@ class CastingForegroundService : Service() {
         }
     }
 
+    private var playbackMonitorJob: Job? = null
+    var onAutoNextEpisodeListener: (() -> Unit)? = null
+
+    private fun startPlaybackMonitor(ctrlUrl: String) {
+        playbackMonitorJob?.cancel()
+        playbackMonitorJob = scope.launch {
+            var hasStartedPlaying = false
+            var consecutiveStoppedCount = 0
+
+            while (isActive && currentStatus.hasActiveStream) {
+                delay(2500)
+                try {
+                    val transInfo = dlnaManager.controller.getTransportInfo(ctrlUrl)
+                    val state = transInfo["current_transport_state"] ?: "STOPPED"
+
+                    if (state.contains("play", ignoreCase = true)) {
+                        hasStartedPlaying = true
+                        consecutiveStoppedCount = 0
+                        renewLocks()
+                    } else if (state.equals("STOPPED", ignoreCase = true) && hasStartedPlaying) {
+                        consecutiveStoppedCount++
+                        if (consecutiveStoppedCount >= 2) {
+                            Log.i(TAG, "Playback naturally ended on TV. Requesting auto-advance to next episode.")
+                            hasStartedPlaying = false
+                            consecutiveStoppedCount = 0
+                            withContext(Dispatchers.Main) {
+                                onAutoNextEpisodeListener?.invoke()
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Playback monitor error: ${e.message}")
+                }
+            }
+        }
+    }
+
     fun stopCasting() {
+        playbackMonitorJob?.cancel()
         scope.launch {
             idleShutdownJob?.cancel()
             dlnaManager.getSelectedDevice()?.avTransportControlUrl?.let { ctrlUrl ->
@@ -299,6 +338,7 @@ class CastingForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        playbackMonitorJob?.cancel()
         idleShutdownJob?.cancel()
         stopProxyServer()
         dlnaManager.release()
