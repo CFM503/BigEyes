@@ -17,11 +17,14 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.bigeyes.app.R
+import com.bigeyes.app.browser.BookmarkManager
 import com.bigeyes.app.browser.CandidateManager
 import com.bigeyes.app.dlna.DlnaDeviceManager
 import com.bigeyes.app.model.VideoCandidate
 import com.bigeyes.app.service.CastingForegroundService
+import com.bigeyes.app.ui.BookmarkDialog
 import com.bigeyes.app.updater.UpdateManager
+import com.bigeyes.app.utils.AppPreferences
 import com.bigeyes.app.utils.NetworkUtils
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -36,6 +39,11 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvAppVersion: TextView
     private lateinit var btnCheckUpdate: Button
     private lateinit var btnOpenGithub: Button
+
+    private lateinit var etHomepageUrl: EditText
+    private lateinit var btnSaveHomepage: Button
+    private lateinit var btnResetHomepage: Button
+    private lateinit var btnManageBookmarksInSettings: Button
 
     private lateinit var tvLocalServerInfo: TextView
     private lateinit var tvVlcM3u8Url: TextView
@@ -67,6 +75,7 @@ class SettingsActivity : AppCompatActivity() {
 
         initViews()
         loadVersionInfo()
+        loadHomepageInfo()
         loadServerAndVlcInfo()
         loadLatestCandidateInfo()
         loadDlnaDeviceList()
@@ -80,6 +89,11 @@ class SettingsActivity : AppCompatActivity() {
         tvAppVersion = findViewById(R.id.tv_app_version)
         btnCheckUpdate = findViewById(R.id.btn_check_update)
         btnOpenGithub = findViewById(R.id.btn_open_github)
+
+        etHomepageUrl = findViewById(R.id.et_homepage_url)
+        btnSaveHomepage = findViewById(R.id.btn_save_homepage)
+        btnResetHomepage = findViewById(R.id.btn_reset_homepage)
+        btnManageBookmarksInSettings = findViewById(R.id.btn_manage_bookmarks_in_settings)
 
         tvLocalServerInfo = findViewById(R.id.tv_local_server_info)
         tvVlcM3u8Url = findViewById(R.id.tv_vlc_m3u8_url)
@@ -107,6 +121,29 @@ class SettingsActivity : AppCompatActivity() {
         btnOpenGithub.setOnClickListener {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/CFM503/BigEyes"))
             startActivity(intent)
+        }
+
+        btnSaveHomepage.setOnClickListener {
+            val input = etHomepageUrl.text.toString().trim()
+            if (input.isNotBlank()) {
+                AppPreferences.setHomepageUrl(this, input)
+                etHomepageUrl.setText(AppPreferences.getHomepageUrl(this))
+                Toast.makeText(this, "默认主页已保存为: ${AppPreferences.getHomepageUrl(this)}", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "主页地址不能为空", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnResetHomepage.setOnClickListener {
+            AppPreferences.resetHomepageUrl(this)
+            etHomepageUrl.setText(AppPreferences.getHomepageUrl(this))
+            Toast.makeText(this, "已恢复出厂默认主页 (腾讯视频: https://v.qq.com)", Toast.LENGTH_SHORT).show()
+        }
+
+        btnManageBookmarksInSettings.setOnClickListener {
+            BookmarkDialog.show(this, null, null) {
+                loadHomepageInfo()
+            }
         }
 
         btnCopyVlcUrl.setOnClickListener {
@@ -169,6 +206,10 @@ class SettingsActivity : AppCompatActivity() {
     private fun loadVersionInfo() {
         val ver = UpdateManager.getCurrentVersionName(this)
         tvAppVersion.text = "v$ver"
+    }
+
+    private fun loadHomepageInfo() {
+        etHomepageUrl.setText(AppPreferences.getHomepageUrl(this))
     }
 
     private fun loadServerAndVlcInfo() {

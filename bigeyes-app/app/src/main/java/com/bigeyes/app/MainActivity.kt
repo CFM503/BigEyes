@@ -43,6 +43,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.bigeyes.app.browser.BlobDownloadBridge
+import com.bigeyes.app.browser.BookmarkManager
 import com.bigeyes.app.browser.CandidateManager
 import com.bigeyes.app.browser.SnifferBridge
 import com.bigeyes.app.browser.SnifferWebViewClient
@@ -51,11 +52,13 @@ import com.bigeyes.app.browser.WebViewDownloadHelper
 import com.bigeyes.app.dlna.DlnaDeviceManager
 import com.bigeyes.app.model.VideoCandidate
 import com.bigeyes.app.service.CastingForegroundService
+import com.bigeyes.app.ui.BookmarkDialog
 import com.bigeyes.app.ui.CandidateDialog
 import com.bigeyes.app.ui.DeviceSelectDialog
 import com.bigeyes.app.ui.PlaybackControlBar
 import com.bigeyes.app.ui.SettingsActivity
 import com.bigeyes.app.updater.UpdateManager
+import com.bigeyes.app.utils.AppPreferences
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,9 +71,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var etUrl: EditText
+    private lateinit var btnHome: ImageButton
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
     private lateinit var btnRefresh: ImageButton
+    private lateinit var btnBookmark: ImageButton
     private lateinit var btnCast: Button
     private lateinit var tvBadgeCount: TextView
     private lateinit var btnSettings: ImageButton
@@ -124,8 +129,8 @@ class MainActivity : AppCompatActivity() {
         // Asynchronous silent check for app updates
         checkForUpdatesSilently()
 
-        // Default landing page
-        val defaultUrl = "https://vodplus.pages.dev"
+        // Default landing page: load user-defined or factory homepage (Tencent Video)
+        val defaultUrl = AppPreferences.getHomepageUrl(this)
         etUrl.setText(defaultUrl)
         webView.loadUrl(defaultUrl)
     }
@@ -141,9 +146,11 @@ class MainActivity : AppCompatActivity() {
         webView = findViewById(R.id.web_view)
         topBar = findViewById(R.id.top_bar)
         etUrl = findViewById(R.id.et_url)
+        btnHome = findViewById(R.id.btn_home)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
         btnRefresh = findViewById(R.id.btn_refresh)
+        btnBookmark = findViewById(R.id.btn_bookmark)
         btnCast = findViewById(R.id.btn_cast)
         tvBadgeCount = findViewById(R.id.tv_badge_count)
         btnSettings = findViewById(R.id.btn_settings)
@@ -312,6 +319,12 @@ class MainActivity : AppCompatActivity() {
                 if (isLoading) {
                     isInlineVideoPlaying = false
                     updateKeepScreenOn()
+                } else {
+                    val currentUrl = webView.url
+                    if (!currentUrl.isNullOrBlank() && !currentUrl.startsWith("about:") && !currentUrl.startsWith("javascript:")) {
+                        etUrl.setText(currentUrl)
+                    }
+                    updateBookmarkIconState(currentUrl)
                 }
             }
         )
@@ -553,6 +566,13 @@ class MainActivity : AppCompatActivity() {
             updateCastBadge(candidates.size)
         }
 
+        btnHome.setOnClickListener {
+            val homeUrl = AppPreferences.getHomepageUrl(this)
+            etUrl.setText(homeUrl)
+            webView.loadUrl(homeUrl)
+            updateBookmarkIconState(homeUrl)
+        }
+
         btnBack.setOnClickListener {
             if (webView.canGoBack()) webView.goBack()
         }
@@ -561,6 +581,18 @@ class MainActivity : AppCompatActivity() {
         }
         btnRefresh.setOnClickListener {
             webView.reload()
+        }
+
+        btnBookmark.setOnClickListener {
+            BookmarkDialog.show(
+                activity = this,
+                currentUrl = webView.url,
+                currentTitle = webView.title
+            ) { targetUrl ->
+                etUrl.setText(targetUrl)
+                webView.loadUrl(targetUrl)
+                updateBookmarkIconState(targetUrl)
+            }
         }
 
         etUrl.setOnEditorActionListener { _, actionId, _ ->
@@ -589,6 +621,24 @@ class MainActivity : AppCompatActivity() {
 
         playbackControlBar.onNextEpisodeListener = {
             triggerNextEpisodeAndCast()
+        }
+    }
+
+    private fun updateBookmarkIconState(url: String? = webView.url) {
+        runOnUiThread {
+            try {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val isBookmarked = BookmarkManager.isBookmarked(this, url)
+                if (isBookmarked) {
+                    btnBookmark.setImageResource(R.drawable.ic_bookmark_filled)
+                    btnBookmark.setColorFilter(ContextCompat.getColor(this, R.color.brand_primary))
+                } else {
+                    btnBookmark.setImageResource(R.drawable.ic_bookmark)
+                    btnBookmark.setColorFilter(ContextCompat.getColor(this, R.color.white))
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Error updating bookmark icon state: ${e.message}")
+            }
         }
     }
 

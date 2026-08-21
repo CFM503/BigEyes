@@ -100,6 +100,90 @@
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
+            <!-- Card: Default Homepage & Bookmarks -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="默认主页与书签管理"
+                            android:textStyle="bold"
+                            android:textSize="16sp"
+                            android:textColor="@color/black" />
+
+                        <Button
+                            android:id="@+id/btn_manage_bookmarks_in_settings"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="管理书签"
+                            style="@style/Widget.MaterialComponents.Button.TextButton" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="启动应用或点击主页按钮时加载的默认网址："
+                        android:textColor="#666666"
+                        android:textSize="12sp"
+                        android:layout_marginTop="6dp" />
+
+                    <EditText
+                        android:id="@+id/et_homepage_url"
+                        android:layout_width="match_parent"
+                        android:layout_height="42dp"
+                        android:hint="https://v.qq.com"
+                        android:textSize="13sp"
+                        android:inputType="textUri"
+                        android:singleLine="true"
+                        android:background="#EFEFEF"
+                        android:paddingHorizontal="10dp"
+                        android:layout_marginTop="8dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="10dp">
+
+                        <Button
+                            android:id="@+id/btn_save_homepage"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="保存自定义主页"
+                            android:backgroundTint="@color/brand_primary"
+                            android:layout_marginEnd="6dp" />
+
+                        <Button
+                            android:id="@+id/btn_reset_homepage"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="恢复腾讯视频"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                    </LinearLayout>
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
             <!-- Card 1: Local Proxy & VLC Test Assistant -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
