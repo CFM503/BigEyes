@@ -27,47 +27,63 @@ class SnifferBridge(
 
     @JavascriptInterface
     fun onVideoDetected(rawUrl: String?, title: String?, referer: String?) {
-        if (rawUrl.isNullOrBlank()) return
+        try {
+            if (rawUrl.isNullOrBlank()) return
 
-        val directUrl = VideoSnifferHelper.extractDirectVideoUrl(rawUrl)
-        if (!VideoSnifferHelper.isVideoStreamUrl(directUrl)) return
+            val directUrl = VideoSnifferHelper.extractDirectVideoUrl(rawUrl)
+            if (!VideoSnifferHelper.isVideoStreamUrl(directUrl)) return
 
-        Log.d(TAG, "JS bridge sniffed candidate stream: $directUrl (raw: $rawUrl)")
+            Log.d(TAG, "JS bridge sniffed candidate stream: $directUrl (raw: $rawUrl)")
 
-        val action = Runnable {
-            val cleanTitle = title?.takeIf { it.isNotBlank() } ?: "在线视频"
-            val userAgent = getCurrentUserAgent()
-            val cookie = getCurrentCookie(directUrl)
+            val action = Runnable {
+                try {
+                    val cleanTitle = title?.takeIf { it.isNotBlank() } ?: "在线视频"
+                    val userAgent = getCurrentUserAgent()
+                    val cookie = getCurrentCookie(directUrl)
 
-            val candidate = VideoCandidate(
-                url = directUrl,
-                referer = referer,
-                userAgent = userAgent,
-                cookie = cookie,
-                title = cleanTitle,
-                timestamp = System.currentTimeMillis()
-            )
-            CandidateManager.addCandidate(candidate)
-        }
+                    val candidate = VideoCandidate(
+                        url = directUrl,
+                        referer = referer,
+                        userAgent = userAgent,
+                        cookie = cookie,
+                        title = cleanTitle,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    CandidateManager.addCandidate(candidate)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Error adding candidate in bridge: ${e.message}", e)
+                }
+            }
 
-        val handler = mainHandler
-        if (handler != null) {
-            handler.post(action)
-        } else {
-            action.run()
+            val handler = mainHandler
+            if (handler != null) {
+                handler.post(action)
+            } else {
+                action.run()
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error in onVideoDetected: ${e.message}", e)
         }
     }
 
     @JavascriptInterface
     fun onPlaybackStateChanged(isPlaying: Boolean) {
-        val action = Runnable {
-            onPlaybackStateListener?.invoke(isPlaying)
-        }
-        val handler = mainHandler
-        if (handler != null) {
-            handler.post(action)
-        } else {
-            action.run()
+        try {
+            val action = Runnable {
+                try {
+                    onPlaybackStateListener?.invoke(isPlaying)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Error in playbackStateListener: ${e.message}", e)
+                }
+            }
+            val handler = mainHandler
+            if (handler != null) {
+                handler.post(action)
+            } else {
+                action.run()
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error in onPlaybackStateChanged: ${e.message}", e)
         }
     }
 }

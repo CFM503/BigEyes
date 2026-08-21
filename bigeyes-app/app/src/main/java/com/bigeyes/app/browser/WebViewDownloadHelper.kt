@@ -197,7 +197,7 @@ object WebViewDownloadHelper {
                 context.getString(R.string.download_started, cleanFilename),
                 Toast.LENGTH_SHORT
             ).show()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to enqueue DownloadManager request: ${e.message}", e)
             Toast.makeText(
                 context,

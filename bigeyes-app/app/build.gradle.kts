@@ -11,8 +11,8 @@ android {
         applicationId = "com.bigeyes.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 16
-        versionName = "2.0.14"
+        versionCode = 17
+        versionName = "2.0.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -23,6 +24,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -153,11 +155,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateKeepScreenOn() {
         runOnUiThread {
-            val shouldKeepOn = (customView != null) || isInlineVideoPlaying
-            if (shouldKeepOn) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            } else {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            try {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val shouldKeepOn = (customView != null) || isInlineVideoPlaying
+                if (shouldKeepOn) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Failed updating keep screen on flag: ${e.message}")
             }
         }
     }
@@ -319,74 +326,141 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                if (customView != null || view == null) {
-                    callback?.onCustomViewHidden()
-                    return
-                }
+                try {
+                    if (view == null) {
+                        callback?.onCustomViewHidden()
+                        return
+                    }
 
-                customView = view
-                customViewCallback = callback
+                    if (customView != null) {
+                        onHideCustomView()
+                    }
 
-                // Hide normal browser UI
-                topBar.visibility = View.GONE
-                progressBar.visibility = View.GONE
-                webView.visibility = View.GONE
-                containerControl.visibility = View.GONE
+                    customView = view
+                    customViewCallback = callback
 
-                // Attach custom view to fullscreen container
-                fullscreenContainer.removeAllViews()
-                fullscreenContainer.addView(
-                    view,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.MATCH_PARENT
+                    // Safely detach view from any existing parent before adding
+                    (view.parent as? ViewGroup)?.removeView(view)
+
+                    // Hide normal browser UI
+                    topBar.visibility = View.GONE
+                    progressBar.visibility = View.GONE
+                    webView.visibility = View.GONE
+                    containerControl.visibility = View.GONE
+
+                    // Attach custom view to fullscreen container
+                    fullscreenContainer.removeAllViews()
+                    fullscreenContainer.addView(
+                        view,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
                     )
-                )
-                fullscreenContainer.visibility = View.VISIBLE
+                    fullscreenContainer.visibility = View.VISIBLE
 
-                // Immersive full screen: hide status bar and navigation bar
-                insetsController?.let { controller ->
-                    controller.hide(WindowInsetsCompat.Type.systemBars())
-                    controller.systemBarsBehavior =
-                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    // Immersive full screen: hide status bar and navigation bar
+                    insetsController?.let { controller ->
+                        controller.hide(WindowInsetsCompat.Type.systemBars())
+                        controller.systemBarsBehavior =
+                            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    }
+
+                    // Switch orientation to sensor landscape for video viewing
+                    try {
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "Failed to set landscape orientation: ${e.message}")
+                    }
+
+                    // Keep screen awake during fullscreen video playback
+                    updateKeepScreenOn()
+
+                    Log.d(TAG, "Entered fullscreen custom view")
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Error in onShowCustomView: ${e.message}", e)
+                    try {
+                        callback?.onCustomViewHidden()
+                    } catch (_: Throwable) {}
+                    customView = null
+                    customViewCallback = null
+                    topBar.visibility = View.VISIBLE
+                    webView.visibility = View.VISIBLE
+                    fullscreenContainer.visibility = View.GONE
                 }
-
-                // Switch orientation to landscape for optimal video viewing
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-
-                // Keep screen awake during fullscreen video playback
-                updateKeepScreenOn()
-
-                Log.d(TAG, "Entered fullscreen custom view")
             }
 
             override fun onHideCustomView() {
-                if (customView == null) return
+                try {
+                    if (customView == null) return
 
-                // Detach custom view
-                fullscreenContainer.removeView(customView)
-                fullscreenContainer.visibility = View.GONE
-                customView = null
+                    // Detach custom view
+                    (customView?.parent as? ViewGroup)?.removeView(customView)
+                    fullscreenContainer.removeAllViews()
+                    fullscreenContainer.visibility = View.GONE
+                    customView = null
 
-                // Restore browser UI
-                topBar.visibility = View.VISIBLE
-                webView.visibility = View.VISIBLE
-                if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) {
-                    containerControl.visibility = View.VISIBLE
+                    // Restore browser UI
+                    topBar.visibility = View.VISIBLE
+                    webView.visibility = View.VISIBLE
+                    if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) {
+                        containerControl.visibility = View.VISIBLE
+                    }
+
+                    // Restore system bars
+                    insetsController?.show(WindowInsetsCompat.Type.systemBars())
+
+                    // Restore portrait / unspecified orientation
+                    try {
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "Failed to restore orientation: ${e.message}")
+                    }
+
+                    // Update screen keep-awake state
+                    updateKeepScreenOn()
+
+                    customViewCallback?.onCustomViewHidden()
+                    customViewCallback = null
+                    Log.d(TAG, "Exited fullscreen custom view")
+                } catch (e: Throwable) {
+                    Log.e(TAG, "Error in onHideCustomView: ${e.message}", e)
+                    customView = null
+                    customViewCallback = null
                 }
+            }
 
-                // Restore system bars
-                insetsController?.show(WindowInsetsCompat.Type.systemBars())
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
+            ): Boolean {
+                if (resultMsg == null) return false
+                val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
+                val tempWebView = WebView(this@MainActivity)
+                tempWebView.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(v: WebView?, req: WebResourceRequest?): Boolean {
+                        val targetUrl = req?.url?.toString()
+                        if (!targetUrl.isNullOrBlank()) {
+                            webView.loadUrl(targetUrl)
+                        }
+                        tempWebView.destroy()
+                        return true
+                    }
 
-                // Restore portrait / unspecified orientation
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-
-                // Update screen keep-awake state
-                updateKeepScreenOn()
-
-                customViewCallback?.onCustomViewHidden()
-                customViewCallback = null
-                Log.d(TAG, "Exited fullscreen custom view")
+                    @Deprecated("Deprecated in Java")
+                    override fun shouldOverrideUrlLoading(v: WebView?, url: String?): Boolean {
+                        if (!url.isNullOrBlank()) {
+                            webView.loadUrl(url)
+                        }
+                        tempWebView.destroy()
+                        return true
+                    }
+                }
+                transport.webView = tempWebView
+                resultMsg.sendToTarget()
+                return true
             }
 
             override fun onShowFileChooser(
@@ -518,13 +592,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateCastBadge(count: Int) {
-        if (count > 0) {
-            tvBadgeCount.visibility = View.VISIBLE
-            tvBadgeCount.text = count.toString()
-            btnCast.text = "投屏 ($count)"
-        } else {
-            tvBadgeCount.visibility = View.GONE
-            tvBadgeCount.text = "投屏"
+        runOnUiThread {
+            try {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (count > 0) {
+                    tvBadgeCount.visibility = View.VISIBLE
+                    tvBadgeCount.text = count.toString()
+                    btnCast.text = "投屏 ($count)"
+                } else {
+                    tvBadgeCount.visibility = View.GONE
+                    tvBadgeCount.text = "投屏"
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Error updating cast badge: ${e.message}")
+            }
         }
     }
 

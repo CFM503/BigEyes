@@ -1,5 +1,6 @@
 package com.bigeyes.app.browser
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
@@ -115,15 +116,47 @@ class SnifferWebViewClient(
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         val uri = request?.url ?: return false
+        return handleUrlOverride(view, uri)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+        if (url == null) return false
+        val uri = try {
+            Uri.parse(url)
+        } catch (_: Exception) {
+            return false
+        }
+        return handleUrlOverride(view, uri)
+    }
+
+    private fun handleUrlOverride(view: WebView?, uri: Uri): Boolean {
         val scheme = uri.scheme?.lowercase() ?: return false
 
-        // Allow web schemes to navigate internally
+        // 1. Allow standard web schemes to navigate internally
         if (scheme == "http" || scheme == "https" || scheme == "blob" || scheme == "data" || scheme == "javascript" || scheme == "about") {
             return false
         }
 
-        // Block or ignore malicious third-party market/app intents from popup ads
-        Log.d(TAG, "Blocked external scheme navigation: $uri")
+        // 2. Safely parse Android Intent URIs (e.g. intent://...)
+        if (scheme == "intent") {
+            try {
+                val intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
+                if (intent != null) {
+                    val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                    if (!fallbackUrl.isNullOrBlank()) {
+                        view?.loadUrl(fallbackUrl)
+                        return true
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed parsing intent URI: ${e.message}")
+            }
+            return true
+        }
+
+        // 3. Block or ignore other external market/app schemes to prevent crash/popup
+        Log.d(TAG, "Ignored external scheme navigation: $uri")
         return true
     }
 }

@@ -80,7 +80,11 @@ object CandidateManager {
 
     fun addListener(listener: (List<VideoCandidate>) -> Unit) {
         listeners.add(listener)
-        listener(getCandidates())
+        try {
+            listener(getCandidates())
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error in addListener callback: ${e.message}", e)
+        }
     }
 
     fun removeListener(listener: (List<VideoCandidate>) -> Unit) {
@@ -94,14 +98,22 @@ object CandidateManager {
             handler.post {
                 synchronized(listeners) {
                     for (listener in listeners) {
-                        listener(currentList)
+                        try {
+                            listener(currentList)
+                        } catch (e: Throwable) {
+                            Log.e(TAG, "Error in candidate listener: ${e.message}", e)
+                        }
                     }
                 }
             }
         } else {
             synchronized(listeners) {
                 for (listener in listeners) {
-                    listener(currentList)
+                    try {
+                        listener(currentList)
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "Error in candidate listener: ${e.message}", e)
+                    }
                 }
             }
         }

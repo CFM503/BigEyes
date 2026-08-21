@@ -1,5 +1,23 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.15] - 2026-08-22
+
+### 🛡️ 深度加固浏览器核心、修复点击视频闪退与全屏/多窗口异常崩溃
+* **彻底修复点击视频闪退（如 `bad.news` 等聚合网站）**：
+  * **修复全屏视图父容器冲突崩溃**：在 `WebChromeClient.onShowCustomView` 中严格安全剥离视图已有父节点（`(view.parent as? ViewGroup)?.removeView(view)`），彻底解决 Android 原生 `IllegalStateException: The specified child already has a parent` 引发的闪退；
+  * **修复屏幕旋转与 Activity 意外重建崩溃**：在 `AndroidManifest.xml` 中补齐 `screenLayout|smallestScreenSize|uiMode|locale|layoutDirection` 配置变更，防止视频全屏切换传感器横竖屏时 Activity 销毁重建导致 WebView 硬件加速 Surface 崩溃；
+* **JS 注入层与播放器 Hook 深度容错加固**：
+  * 重构 `HTMLMediaElement.prototype.play` 与 `src` 属性拦截器，全部添加隔离保护与安全 Promise 返回，杜绝第三方网站自身复杂播放器与嗅探脚本冲突；
+  * DOM 视频状态监听器全面加入安全防护，防止异常事件中断网页运行；
+* **多窗口弹窗与 Intent 协议安全路由**：
+  * 实现 `WebChromeClient.onCreateWindow` 内部安全路由，自动将 `target="_blank"` 或 `window.open` 视频与网页无缝在当前窗口加载，消除弹窗崩溃点；
+  * 增强 `shouldOverrideUrlLoading` 对 `intent://` 协议的安全解析与 `browser_fallback_url` 网页回退；
+* **候选流监听与下载模块全链路安全加固**：
+  * 嗅探候选管理器 `CandidateManager` 与界面徽章更新 `updateCastBadge` 强化主线程与 Activity 存活生命周期校验；
+  * `DownloadManager` 与文件下载模块全面捕获系统服务级异常。
+
+---
+
 ## [v2.0.14] - 2026-08-21
 
 ### 🚀 在线更新国内多源加速、全链路屏幕常亮保活与浏览器刷新按钮

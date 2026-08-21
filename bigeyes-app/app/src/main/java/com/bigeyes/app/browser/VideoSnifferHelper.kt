@@ -194,36 +194,40 @@ object VideoSnifferHelper {
                 }
 
                 function setupVideoListeners(video) {
-                    if (!video || video.__bigeyes_screen_hooked__) return;
-                    video.__bigeyes_screen_hooked__ = true;
+                    try {
+                        if (!video || video.__bigeyes_screen_hooked__) return;
+                        video.__bigeyes_screen_hooked__ = true;
 
-                    video.addEventListener('play', function() {
-                        reportPlaybackState(true);
-                    });
-                    video.addEventListener('playing', function() {
-                        reportPlaybackState(true);
-                    });
-                    video.addEventListener('pause', function() {
-                        reportPlaybackState(checkAnyVideoPlaying());
-                    });
-                    video.addEventListener('ended', function() {
-                        reportPlaybackState(checkAnyVideoPlaying());
-                    });
-                    video.addEventListener('emptied', function() {
-                        reportPlaybackState(checkAnyVideoPlaying());
-                    });
+                        video.addEventListener('play', function() {
+                            try { reportPlaybackState(true); } catch(e) {}
+                        });
+                        video.addEventListener('playing', function() {
+                            try { reportPlaybackState(true); } catch(e) {}
+                        });
+                        video.addEventListener('pause', function() {
+                            try { reportPlaybackState(checkAnyVideoPlaying()); } catch(e) {}
+                        });
+                        video.addEventListener('ended', function() {
+                            try { reportPlaybackState(checkAnyVideoPlaying()); } catch(e) {}
+                        });
+                        video.addEventListener('emptied', function() {
+                            try { reportPlaybackState(checkAnyVideoPlaying()); } catch(e) {}
+                        });
+                    } catch(e) {}
                 }
 
                 // If already installed, just trigger an immediate scan & report
                 if (window.__bigeyes_sniffer_installed__) {
-                    if (window.__bigeyes_recorded_streams__ && window.__bigeyes_recorded_streams__.length > 0) {
-                        for (var i = 0; i < window.__bigeyes_recorded_streams__.length; i++) {
-                            recordAndReport(window.__bigeyes_recorded_streams__[i], document.title);
+                    try {
+                        if (window.__bigeyes_recorded_streams__ && window.__bigeyes_recorded_streams__.length > 0) {
+                            for (var i = 0; i < window.__bigeyes_recorded_streams__.length; i++) {
+                                recordAndReport(window.__bigeyes_recorded_streams__[i], document.title);
+                            }
                         }
-                    }
-                    if (checkAnyVideoPlaying()) {
-                        reportPlaybackState(true);
-                    }
+                        if (checkAnyVideoPlaying()) {
+                            reportPlaybackState(true);
+                        }
+                    } catch(e) {}
                     return;
                 }
                 window.__bigeyes_sniffer_installed__ = true;
@@ -232,13 +236,15 @@ object VideoSnifferHelper {
                 try {
                     var origPlay = HTMLMediaElement.prototype.play;
                     HTMLMediaElement.prototype.play = function() {
-                        reportPlaybackState(true);
-                        if (this.src && isVideoUrl(this.src)) {
-                            recordAndReport(this.src, document.title);
-                        } else if (this.currentSrc && isVideoUrl(this.currentSrc)) {
-                            recordAndReport(this.currentSrc, document.title);
-                        }
-                        return origPlay.apply(this, arguments);
+                        try {
+                            reportPlaybackState(true);
+                            if (this.src && isVideoUrl(this.src)) {
+                                recordAndReport(this.src, document.title);
+                            } else if (this.currentSrc && isVideoUrl(this.currentSrc)) {
+                                recordAndReport(this.currentSrc, document.title);
+                            }
+                        } catch(e) {}
+                        return origPlay ? origPlay.apply(this, arguments) : Promise.resolve();
                     };
 
                     var origSrcDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
@@ -246,12 +252,16 @@ object VideoSnifferHelper {
                         var origSrcSet = origSrcDesc.set;
                         Object.defineProperty(HTMLMediaElement.prototype, 'src', {
                             set: function(val) {
-                                if (isVideoUrl(val)) {
-                                    recordAndReport(val, document.title);
-                                }
-                                return origSrcSet.apply(this, arguments);
+                                try {
+                                    if (isVideoUrl(val)) {
+                                        recordAndReport(val, document.title);
+                                    }
+                                } catch(e) {}
+                                return origSrcSet.call(this, val);
                             },
-                            get: origSrcDesc.get,
+                            get: function() {
+                                return origSrcDesc.get ? origSrcDesc.get.call(this) : this.getAttribute('src');
+                            },
                             configurable: true
                         });
                     }
