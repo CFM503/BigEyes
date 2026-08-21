@@ -34,6 +34,15 @@
             android:tint="@color/white"
             android:contentDescription="前进" />
 
+        <ImageButton
+            android:id="@+id/btn_refresh"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_refresh"
+            android:tint="@color/white"
+            android:contentDescription="刷新" />
+
         <EditText
             android:id="@+id/et_url"
             android:layout_width="0dp"

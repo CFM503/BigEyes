@@ -41,10 +41,23 @@ object UpdateManager {
     private const val GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/CFM503/BigEyes/releases/latest"
     private const val GITHUB_REPO_RELEASES_URL = "https://github.com/CFM503/BigEyes/releases"
 
+    // High-speed CDN & Reverse Proxy Acceleration Mirrors for Mainland China
+    val ACCELERATION_MIRRORS = listOf(
+        "https://ghfast.top/",
+        "https://ghproxy.net/",
+        "https://mirror.ghproxy.com/",
+        "https://gh-proxy.com/"
+    )
+
     private const val PREFS_NAME = "bigeyes_updater_prefs"
     private const val PREF_PENDING_APK_PATH = "pending_apk_path"
     private const val PREF_PENDING_VERSION = "pending_version"
     private const val PREF_WAITING_PERMISSION = "waiting_permission"
+
+    data class DownloadSource(
+        val name: String,
+        val url: String
+    )
 
     data class UpdateInfo(
         val versionName: String,
@@ -69,9 +82,9 @@ object UpdateManager {
     fun getCurrentVersionName(context: Context): String {
         return try {
             val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            pInfo.versionName ?: "2.0.7"
+            pInfo.versionName ?: "2.0.14"
         } catch (_: Exception) {
-            "2.0.7"
+            "2.0.14"
         }
     }
 
@@ -155,70 +168,77 @@ object UpdateManager {
     }
 
     suspend fun fetchLatestRelease(): UpdateInfo? = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url(GITHUB_LATEST_RELEASE_API)
-                .header("Accept", "application/vnd.github.v3+json")
-                .header("User-Agent", "BigEyes-App")
-                .build()
+        val endpoints = mutableListOf(GITHUB_LATEST_RELEASE_API)
+        for (m in ACCELERATION_MIRRORS) {
+            endpoints.add("${m}$GITHUB_LATEST_RELEASE_API")
+        }
 
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "Failed to query GitHub release: HTTP ${response.code}")
-                    return@withContext null
-                }
-                val bodyStr = response.body?.string() ?: return@withContext null
-                val json = JSONObject(bodyStr)
+        for ((index, url) in endpoints.withIndex()) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "BigEyes-App")
+                    .build()
 
-                val tagName = json.optString("tag_name", "").trim()
-                val versionName = tagName.removePrefix("v").trim()
-                val title = json.optString("name", "BigEyes $tagName")
-                val body = json.optString("body", "暂无更新日志")
-                val htmlUrl = json.optString("html_url", GITHUB_REPO_RELEASES_URL)
-                val publishedAtRaw = json.optString("published_at", "")
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Failed to query GitHub release endpoint [$index] $url: HTTP ${response.code}")
+                        return@use
+                    }
+                    val bodyStr = response.body?.string() ?: return@use
+                    val json = JSONObject(bodyStr)
 
-                var downloadUrl: String? = null
-                val assets = json.optJSONArray("assets")
-                if (assets != null) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(i)
-                        val name = asset.optString("name", "")
-                        if (name.endsWith(".apk", ignoreCase = true)) {
-                            downloadUrl = asset.optString("browser_download_url")
-                            break
+                    val tagName = json.optString("tag_name", "").trim()
+                    val versionName = tagName.removePrefix("v").trim()
+                    val title = json.optString("name", "BigEyes $tagName")
+                    val body = json.optString("body", "暂无更新日志")
+                    val htmlUrl = json.optString("html_url", GITHUB_REPO_RELEASES_URL)
+                    val publishedAtRaw = json.optString("published_at", "")
+
+                    var downloadUrl: String? = null
+                    val assets = json.optJSONArray("assets")
+                    if (assets != null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            val name = asset.optString("name", "")
+                            if (name.endsWith(".apk", ignoreCase = true)) {
+                                downloadUrl = asset.optString("browser_download_url")
+                                break
+                            }
                         }
                     }
-                }
 
-                // If no APK asset found in release, fallback to fast tag artifact
-                if (downloadUrl.isNullOrBlank() && tagName.isNotEmpty()) {
-                    downloadUrl = "https://github.com/CFM503/BigEyes/releases/download/$tagName/BigEyes-$tagName.apk"
-                }
+                    // If no APK asset found in release, fallback to fast tag artifact
+                    if (downloadUrl.isNullOrBlank() && tagName.isNotEmpty()) {
+                        downloadUrl = "https://github.com/CFM503/BigEyes/releases/download/$tagName/BigEyes-$tagName.apk"
+                    }
 
-                val formattedDate = try {
-                    if (publishedAtRaw.isNotEmpty()) {
-                        val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-                        val date = inputFormat.parse(publishedAtRaw)
-                        val outputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                        date?.let { outputFormat.format(it) } ?: publishedAtRaw
-                    } else ""
-                } catch (_: Exception) {
-                    publishedAtRaw
-                }
+                    val formattedDate = try {
+                        if (publishedAtRaw.isNotEmpty()) {
+                            val inputFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+                            val date = inputFormat.parse(publishedAtRaw)
+                            val outputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                            date?.let { outputFormat.format(it) } ?: publishedAtRaw
+                        } else ""
+                    } catch (_: Exception) {
+                        publishedAtRaw
+                    }
 
-                UpdateInfo(
-                    versionName = versionName,
-                    title = title,
-                    changelog = body,
-                    downloadUrl = downloadUrl,
-                    releaseHtmlUrl = htmlUrl,
-                    publishedAt = formattedDate
-                )
+                    return@withContext UpdateInfo(
+                        versionName = versionName,
+                        title = title,
+                        changelog = body,
+                        downloadUrl = downloadUrl,
+                        releaseHtmlUrl = htmlUrl,
+                        publishedAt = formattedDate
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking update from endpoint [$index] $url: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error checking update: ${e.message}")
-            null
         }
+        null
     }
 
     /**
@@ -345,6 +365,19 @@ object UpdateManager {
         }
     }
 
+    private fun getDownloadSources(rawDownloadUrl: String): List<DownloadSource> {
+        val sources = mutableListOf<DownloadSource>()
+        // 1. High-priority acceleration mirrors for Mainland China
+        sources.add(DownloadSource("国内高速镜像 1 (ghfast.top)", "https://ghfast.top/$rawDownloadUrl"))
+        sources.add(DownloadSource("国内高速镜像 2 (ghproxy.net)", "https://ghproxy.net/$rawDownloadUrl"))
+        sources.add(DownloadSource("国内高速镜像 3 (mirror.ghproxy.com)", "https://mirror.ghproxy.com/$rawDownloadUrl"))
+        sources.add(DownloadSource("国内高速镜像 4 (gh-proxy.com)", "https://gh-proxy.com/$rawDownloadUrl"))
+
+        // 2. Official GitHub Direct Download (保全兜底方案)
+        sources.add(DownloadSource("官方 GitHub 直连节点 (保全方案)", rawDownloadUrl))
+        return sources
+    }
+
     private fun startDownloadWithDialog(
         activity: AppCompatActivity,
         info: UpdateInfo,
@@ -375,72 +408,125 @@ object UpdateManager {
         progressDialog.show()
 
         activity.lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val request = Request.Builder()
-                    .url(downloadUrl)
-                    .header("User-Agent", "BigEyes-App")
-                    .build()
+            val sources = getDownloadSources(downloadUrl)
+            var downloadSuccess = false
+            var lastError: Exception? = null
 
-                httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        throw Exception("HTTP ${response.code}")
-                    }
+            for ((index, source) in sources.withIndex()) {
+                if (isCancelled) break
 
-                    val body = response.body ?: throw Exception("Empty body")
-                    val totalBytes = body.contentLength()
-                    var bytesDownloaded = 0L
+                withContext(Dispatchers.Main) {
+                    tvStatus.text = "正在连接: ${source.name} (${index + 1}/${sources.size})..."
+                    progressBar.isIndeterminate = true
+                    tvProgress.text = "连接中..."
+                }
 
-                    body.byteStream().use { input ->
-                        FileOutputStream(destFile).use { output ->
-                            val buffer = ByteArray(8192)
-                            var read: Int
-                            var lastUpdatePercent = -1
+                try {
+                    val request = Request.Builder()
+                        .url(source.url)
+                        .header("User-Agent", "BigEyes-App")
+                        .build()
 
-                            while (input.read(buffer).also { read = it } != -1) {
-                                if (isCancelled) {
-                                    destFile.delete()
-                                    return@launch
-                                }
-                                output.write(buffer, 0, read)
-                                bytesDownloaded += read
+                    httpClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            throw Exception("HTTP ${response.code} from ${source.name}")
+                        }
 
-                                if (totalBytes > 0) {
-                                    val percent = ((bytesDownloaded * 100) / totalBytes).toInt()
-                                    if (percent != lastUpdatePercent) {
-                                        lastUpdatePercent = percent
-                                        val downloadedMb = bytesDownloaded / (1024 * 1024.0)
-                                        val totalMb = totalBytes / (1024 * 1024.0)
+                        val body = response.body ?: throw Exception("Empty body from ${source.name}")
+                        val totalBytes = body.contentLength()
+                        var bytesDownloaded = 0L
 
-                                        withContext(Dispatchers.Main) {
-                                            progressBar.isIndeterminate = false
-                                            progressBar.progress = percent
-                                            tvProgress.text = "$percent%"
-                                            tvStatus.text = String.format(Locale.getDefault(), "%.1f MB / %.1f MB", downloadedMb, totalMb)
-                                        }
+                        if (destFile.exists()) {
+                            destFile.delete()
+                        }
+
+                        body.byteStream().use { input ->
+                            FileOutputStream(destFile).use { output ->
+                                val buffer = ByteArray(8192)
+                                var read: Int
+                                var lastUpdatePercent = -1
+
+                                while (input.read(buffer).also { read = it } != -1) {
+                                    if (isCancelled) {
+                                        destFile.delete()
+                                        return@launch
                                     }
-                                } else {
-                                    withContext(Dispatchers.Main) {
-                                        progressBar.isIndeterminate = true
-                                        val downloadedMb = bytesDownloaded / (1024 * 1024.0)
-                                        tvStatus.text = String.format(Locale.getDefault(), "已下载 %.1f MB", downloadedMb)
+                                    output.write(buffer, 0, read)
+                                    bytesDownloaded += read
+
+                                    if (totalBytes > 0) {
+                                        val percent = ((bytesDownloaded * 100) / totalBytes).toInt()
+                                        if (percent != lastUpdatePercent) {
+                                            lastUpdatePercent = percent
+                                            val downloadedMb = bytesDownloaded / (1024 * 1024.0)
+                                            val totalMb = totalBytes / (1024 * 1024.0)
+
+                                            withContext(Dispatchers.Main) {
+                                                progressBar.isIndeterminate = false
+                                                progressBar.progress = percent
+                                                tvProgress.text = "$percent%"
+                                                tvStatus.text = String.format(
+                                                    Locale.getDefault(),
+                                                    "[%s] %.1f MB / %.1f MB",
+                                                    source.name,
+                                                    downloadedMb,
+                                                    totalMb
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        withContext(Dispatchers.Main) {
+                                            progressBar.isIndeterminate = true
+                                            val downloadedMb = bytesDownloaded / (1024 * 1024.0)
+                                            tvStatus.text = String.format(
+                                                Locale.getDefault(),
+                                                "[%s] 已下载 %.1f MB",
+                                                source.name,
+                                                downloadedMb
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
+
+                        // Basic integrity validation: APK file must be at least 1MB
+                        if (destFile.exists() && destFile.length() > 1024 * 1024) {
+                            Log.i(TAG, "Successfully downloaded APK from ${source.name}, size: ${destFile.length()} bytes")
+                            downloadSuccess = true
+                        } else {
+                            throw Exception("Downloaded file is too small (${destFile.length()} bytes)")
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (isCancelled) {
+                        destFile.delete()
+                        return@launch
+                    }
+                    Log.w(TAG, "Source ${source.name} failed: ${e.message}. Trying next source...")
+                    lastError = e
+                    if (destFile.exists()) {
+                        destFile.delete()
                     }
                 }
 
-                withContext(Dispatchers.Main) {
-                    progressDialog.dismiss()
-                    installApk(activity, destFile)
+                if (downloadSuccess) {
+                    break
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Download failed: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    progressDialog.dismiss()
+            }
+
+            if (isCancelled) {
+                return@launch
+            }
+
+            withContext(Dispatchers.Main) {
+                progressDialog.dismiss()
+                if (downloadSuccess && destFile.exists()) {
+                    installApk(activity, destFile)
+                } else {
                     MaterialAlertDialogBuilder(activity)
-                        .setTitle("下载失败")
-                        .setMessage("下载更新包失败 (${e.message})，是否前往 GitHub Release 网页手动下载？")
+                        .setTitle("下载更新失败")
+                        .setMessage("所有高速镜像节点及 GitHub 原生直连均下载失败（${lastError?.message ?: "未知错误"}）。是否前往 GitHub Release 网页手动下载？")
                         .setPositiveButton("前往网页") { _, _ ->
                             openBrowser(activity, info.releaseHtmlUrl)
                         }

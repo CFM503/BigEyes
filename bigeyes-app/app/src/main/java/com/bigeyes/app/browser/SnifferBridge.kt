@@ -8,7 +8,8 @@ import com.bigeyes.app.model.VideoCandidate
 
 class SnifferBridge(
     private val getCurrentUserAgent: () -> String?,
-    private val getCurrentCookie: (String) -> String?
+    private val getCurrentCookie: (String) -> String?,
+    var onPlaybackStateListener: ((Boolean) -> Unit)? = null
 ) {
 
     companion object {
@@ -49,6 +50,19 @@ class SnifferBridge(
             CandidateManager.addCandidate(candidate)
         }
 
+        val handler = mainHandler
+        if (handler != null) {
+            handler.post(action)
+        } else {
+            action.run()
+        }
+    }
+
+    @JavascriptInterface
+    fun onPlaybackStateChanged(isPlaying: Boolean) {
+        val action = Runnable {
+            onPlaybackStateListener?.invoke(isPlaying)
+        }
         val handler = mainHandler
         if (handler != null) {
             handler.post(action)

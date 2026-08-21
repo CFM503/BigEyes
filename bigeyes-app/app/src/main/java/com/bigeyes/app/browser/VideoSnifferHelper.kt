@@ -176,12 +176,53 @@ object VideoSnifferHelper {
                            l.indexOf('format=m3u8') !== -1 || l.indexOf('url=http') !== -1;
                 }
 
+                function reportPlaybackState(isPlaying) {
+                    if (window.BigEyesSnifferBridge && window.BigEyesSnifferBridge.onPlaybackStateChanged) {
+                        window.BigEyesSnifferBridge.onPlaybackStateChanged(isPlaying);
+                    }
+                }
+
+                function checkAnyVideoPlaying() {
+                    var videos = document.querySelectorAll('video');
+                    for (var i = 0; i < videos.length; i++) {
+                        var v = videos[i];
+                        if (!v.paused && !v.ended && v.readyState > 1) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                function setupVideoListeners(video) {
+                    if (!video || video.__bigeyes_screen_hooked__) return;
+                    video.__bigeyes_screen_hooked__ = true;
+
+                    video.addEventListener('play', function() {
+                        reportPlaybackState(true);
+                    });
+                    video.addEventListener('playing', function() {
+                        reportPlaybackState(true);
+                    });
+                    video.addEventListener('pause', function() {
+                        reportPlaybackState(checkAnyVideoPlaying());
+                    });
+                    video.addEventListener('ended', function() {
+                        reportPlaybackState(checkAnyVideoPlaying());
+                    });
+                    video.addEventListener('emptied', function() {
+                        reportPlaybackState(checkAnyVideoPlaying());
+                    });
+                }
+
                 // If already installed, just trigger an immediate scan & report
                 if (window.__bigeyes_sniffer_installed__) {
                     if (window.__bigeyes_recorded_streams__ && window.__bigeyes_recorded_streams__.length > 0) {
                         for (var i = 0; i < window.__bigeyes_recorded_streams__.length; i++) {
                             recordAndReport(window.__bigeyes_recorded_streams__[i], document.title);
                         }
+                    }
+                    if (checkAnyVideoPlaying()) {
+                        reportPlaybackState(true);
                     }
                     return;
                 }
@@ -191,6 +232,7 @@ object VideoSnifferHelper {
                 try {
                     var origPlay = HTMLMediaElement.prototype.play;
                     HTMLMediaElement.prototype.play = function() {
+                        reportPlaybackState(true);
                         if (this.src && isVideoUrl(this.src)) {
                             recordAndReport(this.src, document.title);
                         } else if (this.currentSrc && isVideoUrl(this.currentSrc)) {
@@ -261,12 +303,17 @@ object VideoSnifferHelper {
                     var videos = document.querySelectorAll('video');
                     for (var i = 0; i < videos.length; i++) {
                         var v = videos[i];
+                        setupVideoListeners(v);
                         if (v.src && isVideoUrl(v.src)) recordAndReport(v.src, document.title);
                         if (v.currentSrc && isVideoUrl(v.currentSrc)) recordAndReport(v.currentSrc, document.title);
                         var sources = v.querySelectorAll('source');
                         for (var j = 0; j < sources.length; j++) {
                             if (sources[j].src && isVideoUrl(sources[j].src)) recordAndReport(sources[j].src, document.title);
                         }
+                    }
+
+                    if (checkAnyVideoPlaying()) {
+                        reportPlaybackState(true);
                     }
 
                     if (window.art && window.art.url && isVideoUrl(window.art.url)) recordAndReport(window.art.url, document.title);

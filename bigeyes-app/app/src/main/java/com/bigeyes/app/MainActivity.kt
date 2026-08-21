@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.ConsoleMessage
@@ -66,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etUrl: EditText
     private lateinit var btnBack: ImageButton
     private lateinit var btnForward: ImageButton
+    private lateinit var btnRefresh: ImageButton
     private lateinit var btnCast: Button
     private lateinit var tvBadgeCount: TextView
     private lateinit var btnSettings: ImageButton
@@ -74,6 +76,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var containerControl: View
     private lateinit var fullscreenContainer: FrameLayout
     private lateinit var playbackControlBar: PlaybackControlBar
+
+    private var isInlineVideoPlaying: Boolean = false
 
     private var fallbackDlnaManager: DlnaDeviceManager? = null
     private var currentCandidates: List<VideoCandidate> = emptyList()
@@ -136,6 +140,7 @@ class MainActivity : AppCompatActivity() {
         etUrl = findViewById(R.id.et_url)
         btnBack = findViewById(R.id.btn_back)
         btnForward = findViewById(R.id.btn_forward)
+        btnRefresh = findViewById(R.id.btn_refresh)
         btnCast = findViewById(R.id.btn_cast)
         tvBadgeCount = findViewById(R.id.tv_badge_count)
         btnSettings = findViewById(R.id.btn_settings)
@@ -144,6 +149,17 @@ class MainActivity : AppCompatActivity() {
         fullscreenContainer = findViewById(R.id.fullscreen_custom_content)
 
         playbackControlBar = PlaybackControlBar(containerControl, lifecycleScope)
+    }
+
+    private fun updateKeepScreenOn() {
+        runOnUiThread {
+            val shouldKeepOn = (customView != null) || isInlineVideoPlaying
+            if (shouldKeepOn) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
     }
 
     private fun setupWindowInsets() {
@@ -219,7 +235,11 @@ class MainActivity : AppCompatActivity() {
         // Register Real-time Video Sniffer JavascriptInterface bridge
         val snifferBridge = SnifferBridge(
             getCurrentUserAgent = { webView.settings.userAgentString },
-            getCurrentCookie = { url -> CookieManager.getInstance().getCookie(url) }
+            getCurrentCookie = { url -> CookieManager.getInstance().getCookie(url) },
+            onPlaybackStateListener = { isPlaying ->
+                isInlineVideoPlaying = isPlaying
+                updateKeepScreenOn()
+            }
         )
         webView.addJavascriptInterface(snifferBridge, SnifferBridge.JAVASCRIPT_NAME)
 
@@ -281,6 +301,10 @@ class MainActivity : AppCompatActivity() {
             },
             onPageLoadingChanged = { isLoading ->
                 progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+                if (isLoading) {
+                    isInlineVideoPlaying = false
+                    updateKeepScreenOn()
+                }
             }
         )
 
@@ -329,6 +353,10 @@ class MainActivity : AppCompatActivity() {
 
                 // Switch orientation to landscape for optimal video viewing
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
+                // Keep screen awake during fullscreen video playback
+                updateKeepScreenOn()
+
                 Log.d(TAG, "Entered fullscreen custom view")
             }
 
@@ -352,6 +380,9 @@ class MainActivity : AppCompatActivity() {
 
                 // Restore portrait / unspecified orientation
                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+                // Update screen keep-awake state
+                updateKeepScreenOn()
 
                 customViewCallback?.onCustomViewHidden()
                 customViewCallback = null
@@ -452,6 +483,9 @@ class MainActivity : AppCompatActivity() {
         }
         btnForward.setOnClickListener {
             if (webView.canGoForward()) webView.goForward()
+        }
+        btnRefresh.setOnClickListener {
+            webView.reload()
         }
 
         etUrl.setOnEditorActionListener { _, actionId, _ ->
@@ -715,6 +749,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
         fallbackDlnaManager?.release()
