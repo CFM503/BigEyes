@@ -236,6 +236,11 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun setupWebView() {
+        // Enable persistent cookies and third-party authentication cookies
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        cookieManager.setAcceptThirdPartyCookies(webView, true)
+
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
@@ -247,13 +252,19 @@ class MainActivity : AppCompatActivity() {
         settings.mediaPlaybackRequiresUserGesture = false
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
-        settings.setSupportMultipleWindows(false) // Blocks popup ads
+        settings.setSupportMultipleWindows(false) // Route popups cleanly
 
-        // Prevent unwanted whole-page pinch-zoom from breaking SPA layout & touch coordinates
+        // Prevent unwanted whole-page pinch-zoom from breaking SPA layout
         settings.setSupportZoom(false)
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
         settings.cacheMode = WebSettings.LOAD_DEFAULT
+
+        // Ensure modern Mobile Chrome User-Agent
+        val defaultUa = settings.userAgentString
+        if (defaultUa.isNullOrBlank() || !defaultUa.contains("Chrome/")) {
+            settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+        }
 
         // Register Blob Download JavascriptInterface bridge
         val blobBridge = BlobDownloadBridge(this)
@@ -337,6 +348,13 @@ class MainActivity : AppCompatActivity() {
                         etUrl.setText(currentUrl)
                     }
                     updateBookmarkIconState(currentUrl)
+                }
+            },
+            onRendererGoneCallback = { didCrash ->
+                runOnUiThread {
+                    Log.w(TAG, "Renderer process recovered (didCrash=$didCrash)")
+                    val targetUrl = etUrl.text.toString().trim().ifEmpty { AppPreferences.getHomepageUrl(this@MainActivity) }
+                    webView.loadUrl(targetUrl)
                 }
             }
         )
@@ -853,12 +871,51 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    override fun onResume() {
+        super.onResume()
+        try {
+            webView.onResume()
+            CookieManager.getInstance().flush()
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error in onResume: ${e.message}")
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            webView.onPause()
+            CookieManager.getInstance().flush()
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error in onPause: ${e.message}")
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            CookieManager.getInstance().flush()
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error in onStop: ${e.message}")
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
         fallbackDlnaManager?.release()
-        webView.destroy()
+        try {
+            CookieManager.getInstance().flush()
+            webView.removeJavascriptInterface(BlobDownloadBridge.JAVASCRIPT_NAME)
+            webView.removeJavascriptInterface(SnifferBridge.JAVASCRIPT_NAME)
+            webView.stopLoading()
+            webView.clearHistory()
+            (webView.parent as? ViewGroup)?.removeView(webView)
+            webView.destroy()
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error during webView destruction: ${e.message}")
+        }
     }
 }

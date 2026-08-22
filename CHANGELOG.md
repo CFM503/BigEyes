@@ -1,5 +1,22 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.21] - 2026-08-23
+
+### 🚀 彻底修复 WebView 长时间滑动闪退、增加网站登录持久化与全链路架构加固
+* **彻底根治 `vodpro.pages.dev` 等现代 SPA 聚合站长时间滑动浏览闪退问题**：
+  * **根因定位与修复**：原 JS 注入层中 `isVideoUrl` 对含 `url=http` 的海量图片代理 URL（如 TMDB / wsrv.nl 等封面海报）产生误判，导致在长列表无限滚动加载时产生数以千计的误嗅探对象，高频死循环打爆 Java Bridge 与 Chromium IPC；现已严格过滤静态图片、样式、脚本及字体资源，并加入 JS 层 URL 发现去重缓存与数组容量限制；
+  * **实现 `onRenderProcessGone` 崩溃兜底**：在 `SnifferWebViewClient` 中实现 `onRenderProcessGone`，在 Chromium 渲染进程异常或系统内存极度紧张时返回 `true`，防止 Android 默认杀死主宿主进程，并自动执行平滑恢复；
+  * **启用 `android:largeHeap="true"`**：在 `AndroidManifest.xml` 为应用分配大堆内存，从容应对高清瀑布流海量海报解码与内存缓存；
+* **完整的网站登录状态与 Cookie / LocalStorage 持久化机制**：
+  * **开启第三方 Cookie 支持**：启用 `CookieManager.setAcceptThirdPartyCookies(webView, true)`，确保跨域与现代认证端点（JWT/OAuth/NextAuth）正常接收与维持鉴权凭据；
+  * **生命周期双向同步持久化**：在 `onPageFinished`、`onPause`、`onStop`、`onDestroy` 中即时调用 `CookieManager.getInstance().flush()`，实现应用关闭重启后自动恢复有效登录状态，主动退出登录即可清除；
+* **全面加固 WebView 架构与网络异常处理**：
+  * **优化 SSL 证书与 HTTP 错误处理**：重写 `onReceivedSslError` 与 `onReceivedHttpError`，防止证书链或 Cloudflare 异常时页面静默白屏；
+  * **完善生命周期管理**：在 `onResume` 与 `onPause` 中同步调用 `webView.onResume()` / `webView.onPause()`，在 `onDestroy` 中安全剥离并释放 WebView 资源，杜绝 Context 泄漏；
+  * **标准化 User-Agent**：设置标准现代移动端 Chrome UA，确保在 Cloudflare Edge 及各大现代前端框架下的最佳兼容性。
+
+---
+
 ## [v2.0.20] - 2026-08-22
 
 ### 🔴 彻底修复桌面点击图标必现闪退问题（ID 冲突导致的 ClassCastException）

@@ -147,6 +147,7 @@ object VideoSnifferHelper {
         return """
             (function() {
                 window.__bigeyes_recorded_streams__ = window.__bigeyes_recorded_streams__ || [];
+                var reportedMap = {};
 
                 function recordAndReport(url, title) {
                     if (!url || typeof url !== 'string') return;
@@ -156,29 +157,57 @@ object VideoSnifferHelper {
 
                     if (window.__bigeyes_recorded_streams__.indexOf(url) === -1) {
                         window.__bigeyes_recorded_streams__.push(url);
+                        if (window.__bigeyes_recorded_streams__.length > 50) {
+                            window.__bigeyes_recorded_streams__.shift();
+                        }
                     }
+
+                    if (reportedMap[url]) return;
+                    reportedMap[url] = true;
 
                     var cleanTitle = title || document.title || 'Video Stream';
                     var ref = window.location.href;
 
                     if (window.BigEyesSnifferBridge && window.BigEyesSnifferBridge.onVideoDetected) {
-                        window.BigEyesSnifferBridge.onVideoDetected(url, cleanTitle, ref);
+                        try {
+                            window.BigEyesSnifferBridge.onVideoDetected(url, cleanTitle, ref);
+                        } catch(e) {}
                     }
                 }
 
                 function isVideoUrl(u) {
                     if (!u || typeof u !== 'string') return false;
                     var l = u.toLowerCase();
-                    if (l.startsWith('blob:') || l.startsWith('data:') || l.startsWith('javascript:')) return false;
-                    return l.indexOf('.m3u8') !== -1 || l.indexOf('.mp4') !== -1 ||
-                           l.indexOf('.flv') !== -1 || l.indexOf('/hls/') !== -1 ||
-                           l.indexOf('type=m3u8') !== -1 || l.indexOf('format=hls') !== -1 ||
-                           l.indexOf('format=m3u8') !== -1 || l.indexOf('url=http') !== -1;
+                    if (l.startsWith('blob:') || l.startsWith('data:') || l.startsWith('javascript:') || l.startsWith('about:')) return false;
+
+                    // Strictly ignore common images, stylesheets, fonts, and scripts
+                    if (l.indexOf('.jpg') !== -1 || l.indexOf('.jpeg') !== -1 || l.indexOf('.png') !== -1 ||
+                        l.indexOf('.gif') !== -1 || l.indexOf('.webp') !== -1 || l.indexOf('.svg') !== -1 ||
+                        l.indexOf('.avif') !== -1 || l.indexOf('.css') !== -1 || l.indexOf('.woff') !== -1 ||
+                        l.indexOf('.ttf') !== -1 || l.indexOf('image.tmdb.org') !== -1 || l.indexOf('wsrv.nl') !== -1 ||
+                        l.indexOf('weserv.nl') !== -1 || l.indexOf('_next/static') !== -1 || l.indexOf('_next/image') !== -1) {
+                        return false;
+                    }
+
+                    if (l.indexOf('.m3u8') !== -1 || l.indexOf('.mp4') !== -1 ||
+                        l.indexOf('.flv') !== -1 || l.indexOf('/hls/') !== -1 ||
+                        l.indexOf('.mpd') !== -1 || l.indexOf('.f4v') !== -1 ||
+                        l.indexOf('type=m3u8') !== -1 || l.indexOf('format=hls') !== -1 ||
+                        l.indexOf('format=m3u8') !== -1) {
+                        return true;
+                    }
+
+                    if (l.indexOf('url=http') !== -1 || l.indexOf('v=http') !== -1 || l.indexOf('src=http') !== -1) {
+                        return l.indexOf('.m3u8') !== -1 || l.indexOf('.mp4') !== -1 || l.indexOf('/hls/') !== -1;
+                    }
+                    return false;
                 }
 
                 function reportPlaybackState(isPlaying) {
                     if (window.BigEyesSnifferBridge && window.BigEyesSnifferBridge.onPlaybackStateChanged) {
-                        window.BigEyesSnifferBridge.onPlaybackStateChanged(isPlaying);
+                        try {
+                            window.BigEyesSnifferBridge.onPlaybackStateChanged(isPlaying);
+                        } catch(e) {}
                     }
                 }
 
@@ -216,14 +245,9 @@ object VideoSnifferHelper {
                     } catch(e) {}
                 }
 
-                // If already installed, just trigger an immediate scan & report
+                // If already installed, just trigger an immediate check on active videos
                 if (window.__bigeyes_sniffer_installed__) {
                     try {
-                        if (window.__bigeyes_recorded_streams__ && window.__bigeyes_recorded_streams__.length > 0) {
-                            for (var i = 0; i < window.__bigeyes_recorded_streams__.length; i++) {
-                                recordAndReport(window.__bigeyes_recorded_streams__[i], document.title);
-                            }
-                        }
                         if (checkAnyVideoPlaying()) {
                             reportPlaybackState(true);
                         }
@@ -272,7 +296,9 @@ object VideoSnifferHelper {
                     if (window.Hls && window.Hls.prototype && window.Hls.prototype.loadSource) {
                         var origLoad = window.Hls.prototype.loadSource;
                         window.Hls.prototype.loadSource = function(url) {
-                            recordAndReport(url, document.title);
+                            if (isVideoUrl(url)) {
+                                recordAndReport(url, document.title);
+                            }
                             return origLoad.apply(this, arguments);
                         };
                     }
@@ -303,45 +329,40 @@ object VideoSnifferHelper {
 
                 // 5. Periodic & MutationObserver Scan
                 function scanNow() {
-                    // Check recorded streams
-                    if (window.__bigeyes_recorded_streams__ && window.__bigeyes_recorded_streams__.length > 0) {
-                        for (var r = 0; r < window.__bigeyes_recorded_streams__.length; r++) {
-                            recordAndReport(window.__bigeyes_recorded_streams__[r], document.title);
+                    try {
+                        var videos = document.querySelectorAll('video');
+                        for (var i = 0; i < videos.length; i++) {
+                            var v = videos[i];
+                            setupVideoListeners(v);
+                            if (v.src && isVideoUrl(v.src)) recordAndReport(v.src, document.title);
+                            if (v.currentSrc && isVideoUrl(v.currentSrc)) recordAndReport(v.currentSrc, document.title);
+                            var sources = v.querySelectorAll('source');
+                            for (var j = 0; j < sources.length; j++) {
+                                if (sources[j].src && isVideoUrl(sources[j].src)) recordAndReport(sources[j].src, document.title);
+                            }
                         }
-                    }
 
-                    var videos = document.querySelectorAll('video');
-                    for (var i = 0; i < videos.length; i++) {
-                        var v = videos[i];
-                        setupVideoListeners(v);
-                        if (v.src && isVideoUrl(v.src)) recordAndReport(v.src, document.title);
-                        if (v.currentSrc && isVideoUrl(v.currentSrc)) recordAndReport(v.currentSrc, document.title);
-                        var sources = v.querySelectorAll('source');
-                        for (var j = 0; j < sources.length; j++) {
-                            if (sources[j].src && isVideoUrl(sources[j].src)) recordAndReport(sources[j].src, document.title);
+                        if (checkAnyVideoPlaying()) {
+                            reportPlaybackState(true);
                         }
-                    }
 
-                    if (checkAnyVideoPlaying()) {
-                        reportPlaybackState(true);
-                    }
-
-                    if (window.art && window.art.url && isVideoUrl(window.art.url)) recordAndReport(window.art.url, document.title);
-                    if (window.artplayer && window.artplayer.url && isVideoUrl(window.artplayer.url)) recordAndReport(window.artplayer.url, document.title);
-                    if (window.dp && window.dp.video && window.dp.video.src && isVideoUrl(window.dp.video.src)) recordAndReport(window.dp.video.src, document.title);
-                    if (window.dp && window.dp.video && window.dp.video.url && isVideoUrl(window.dp.video.url)) recordAndReport(window.dp.video.url, document.title);
-                    if (window.hls && window.hls.url && isVideoUrl(window.hls.url)) recordAndReport(window.hls.url, document.title);
-                    if (window.player && window.player.src && isVideoUrl(window.player.src)) recordAndReport(window.player.src, document.title);
-                    if (window.player && window.player.url && isVideoUrl(window.player.url)) recordAndReport(window.player.url, document.title);
-                    if (window.ckplayer && window.ckplayer.url && isVideoUrl(window.ckplayer.url)) recordAndReport(window.ckplayer.url, document.title);
-                    if (window.xgplayer && window.xgplayer.src && isVideoUrl(window.xgplayer.src)) recordAndReport(window.xgplayer.src, document.title);
-                    if (window.xgplayer && window.xgplayer.url && isVideoUrl(window.xgplayer.url)) recordAndReport(window.xgplayer.url, document.title);
+                        if (window.art && window.art.url && isVideoUrl(window.art.url)) recordAndReport(window.art.url, document.title);
+                        if (window.artplayer && window.artplayer.url && isVideoUrl(window.artplayer.url)) recordAndReport(window.artplayer.url, document.title);
+                        if (window.dp && window.dp.video && window.dp.video.src && isVideoUrl(window.dp.video.src)) recordAndReport(window.dp.video.src, document.title);
+                        if (window.dp && window.dp.video && window.dp.video.url && isVideoUrl(window.dp.video.url)) recordAndReport(window.dp.video.url, document.title);
+                        if (window.hls && window.hls.url && isVideoUrl(window.hls.url)) recordAndReport(window.hls.url, document.title);
+                        if (window.player && window.player.src && isVideoUrl(window.player.src)) recordAndReport(window.player.src, document.title);
+                        if (window.player && window.player.url && isVideoUrl(window.player.url)) recordAndReport(window.player.url, document.title);
+                        if (window.ckplayer && window.ckplayer.url && isVideoUrl(window.ckplayer.url)) recordAndReport(window.ckplayer.url, document.title);
+                        if (window.xgplayer && window.xgplayer.src && isVideoUrl(window.xgplayer.src)) recordAndReport(window.xgplayer.src, document.title);
+                        if (window.xgplayer && window.xgplayer.url && isVideoUrl(window.xgplayer.url)) recordAndReport(window.xgplayer.url, document.title);
+                    } catch(e) {}
                 }
 
                 scanNow();
                 setInterval(function() {
                     try { scanNow(); } catch(e) {}
-                }, 2000);
+                }, 3000);
 
                 var debounceTimer = null;
                 var observer = new MutationObserver(function() {
@@ -349,7 +370,7 @@ object VideoSnifferHelper {
                     debounceTimer = setTimeout(function() {
                         debounceTimer = null;
                         try { scanNow(); } catch(e) {}
-                    }, 1000);
+                    }, 2000);
                 });
                 if (document.body) {
                     observer.observe(document.body, { childList: true, subtree: true });

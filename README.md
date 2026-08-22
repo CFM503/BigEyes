@@ -93,7 +93,8 @@ cd bigeyes-app
 
 ## 三、版本记录
 
-* **v2.0.20 (当前版本)**：修复底部导航「前进」按钮与播控条「+15s」按钮资源 ID 冲突导致的桌面点击图标必现闪退（ClassCastException）。
+* **v2.0.21 (当前版本)**：彻底修复 WebView 长时间滑动浏览闪退问题、实现网站登录状态与 Cookie 持久化、升级 onRenderProcessGone 与 largeHeap。
+* **v2.0.20**：修复底部导航「前进」按钮与播控条「+15s」按钮资源 ID 冲突导致的桌面点击图标必现闪退（ClassCastException）。
 * **v2.0.19**：彻底根除 Android 12/13/14 冷启动前台服务限制闪退、全量升级 AppCompat 控件与全局崩溃守护。
 * **v2.0.18**：彻底修复低版本 Android 矢量图标主题解析异常导致的启动闪退、全局激活 VectorDrawableCompat 支持。
 * **v2.0.17**：重构超宽网址输入框与双层人体工学导航栏、彻底根治 bad.news 等站点点击视频闪退与全屏崩溃。

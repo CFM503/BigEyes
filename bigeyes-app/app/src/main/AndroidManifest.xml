@@ -21,6 +21,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BigEyes"
         android:usesCleartextTraffic="true"
+        android:largeHeap="true"
         android:networkSecurityConfig="@xml/network_security_config">
 
         <activity
