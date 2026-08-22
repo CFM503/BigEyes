@@ -1,0 +1,106 @@
+From 41f022e4421da3f3a12abe8e2f9d4ca33ae72ab0 Mon Sep 17 00:00:00 2001
+From: CFM503 <pzeus@163.com>
+Date: Sat, 22 Aug 2026 16:00:30 +0000
+Subject: [PATCH] fix(ui): resolve btn_forward duplicate resource ID crash on
+ launch (v2.0.20)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 修复根因：activity_main.xml 底部导航栏"前进"按钮与被 include 的
+  view_playback_control.xml 中"+15s"快进按钮共用同一 ID btn_forward，
+  导致 MainActivity.initViews() 中 findViewById 命中错误类型的 View，
+  抛出 ClassCastException（Button 无法转换为 ImageButton）。
+- 该异常在 onCreate() 阶段同步抛出，导致应用每次从桌面点击图标启动
+  即刻闪退，无法进入任何界面。
+- 修复方式：将底部导航"前进"按钮 ID 重命名为唯一的 btn_nav_forward，
+  同步更新 MainActivity.kt 中的 findViewById 引用；播控条的
+  btn_forward（+15s 快进）保持不变。
+- 已核查合并后的完整视图 ID 列表，确认无其他重复 ID。
+- 版本号更新至 2.0.20 (versionCode 22)，更新 CHANGELOG.md 与 README.md。
+---
+ CHANGELOG.md                                           | 10 ++++++++++
+ README.md                                              |  3 ++-
+ bigeyes-app/app/build.gradle.kts                       |  4 ++--
+ .../app/src/main/java/com/bigeyes/app/MainActivity.kt  |  2 +-
+ bigeyes-app/app/src/main/res/layout/activity_main.xml  |  2 +-
+ 5 files changed, 16 insertions(+), 5 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 037ecf9..2ff60fd 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,15 @@
+ # BigEyes 修改日志 (Changelog)
+ 
++## [v2.0.20] - 2026-08-22
++
++### 🔴 彻底修复桌面点击图标必现闪退问题（ID 冲突导致的 ClassCastException）
++* **根因定位**：`activity_main.xml` 底部导航栏的「前进 ▶」按钮（`AppCompatImageButton`）与被 `<include>` 引入的播控条 `view_playback_control.xml` 中的「+15s」快进按钮（`Button`）**共用了同一个资源 ID `btn_forward`**。由于两者被解析到同一份视图树中，`MainActivity.initViews()` 里 `findViewById(R.id.btn_forward)` 命中的是视图树中先出现的播控条 `Button`，而非预期的 `AppCompatImageButton`，在赋值给 `ImageButton` 类型字段时触发 `ClassCastException`；
++* **崩溃位置**：`onCreate()` → `initViews()` 阶段同步抛出未捕获异常，导致应用在桌面点击图标启动后**每次必现瞬间闪退**，无法进入任何界面；
++* **修复方案**：将底部导航栏「前进」按钮的 ID 由 `btn_forward` 重命名为唯一的 `btn_nav_forward`，并同步更新 `MainActivity.kt` 中对应的 `findViewById` 调用，彻底消除 ID 命名空间冲突；播控条的 `btn_forward`（+15s 快进）功能不受影响，保持原样；
++* **验证**：已核查 `activity_main.xml` 与其 `<include>` 的 `view_playback_control.xml` 合并后的完整 ID 列表，确认不再存在任何重复 ID。
++
++---
++
+ ## [v2.0.19] - 2026-08-22
+ 
+ ### 🛡️ 彻底消除冷启动前台服务异常崩溃与全量升级 AppCompat 控件
+diff --git a/README.md b/README.md
+index 8f0bb1f..506d0de 100644
+--- a/README.md
++++ b/README.md
+@@ -93,7 +93,8 @@ cd bigeyes-app
+ 
+ ## 三、版本记录
+ 
+-* **v2.0.19 (当前版本)**：彻底根除 Android 12/13/14 冷启动前台服务限制闪退、全量升级 AppCompat 控件与全局崩溃守护。
++* **v2.0.20 (当前版本)**：修复底部导航「前进」按钮与播控条「+15s」按钮资源 ID 冲突导致的桌面点击图标必现闪退（ClassCastException）。
++* **v2.0.19**：彻底根除 Android 12/13/14 冷启动前台服务限制闪退、全量升级 AppCompat 控件与全局崩溃守护。
+ * **v2.0.18**：彻底修复低版本 Android 矢量图标主题解析异常导致的启动闪退、全局激活 VectorDrawableCompat 支持。
+ * **v2.0.17**：重构超宽网址输入框与双层人体工学导航栏、彻底根治 bad.news 等站点点击视频闪退与全屏崩溃。
+ * **v2.0.16**：新增浏览器书签收藏管理系统、支持自定义默认主页设置、出厂默认主页重置为腾讯视频。
+diff --git a/bigeyes-app/app/build.gradle.kts b/bigeyes-app/app/build.gradle.kts
+index a486f00..99a57f3 100644
+--- a/bigeyes-app/app/build.gradle.kts
++++ b/bigeyes-app/app/build.gradle.kts
+@@ -11,8 +11,8 @@ android {
+         applicationId = "com.bigeyes.app"
+         minSdk = 24
+         targetSdk = 34
+-        versionCode = 21
+-        versionName = "2.0.19"
++        versionCode = 22
++        versionName = "2.0.20"
+ 
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+     }
+diff --git a/bigeyes-app/app/src/main/java/com/bigeyes/app/MainActivity.kt b/bigeyes-app/app/src/main/java/com/bigeyes/app/MainActivity.kt
+index 13b02cb..11ab045 100644
+--- a/bigeyes-app/app/src/main/java/com/bigeyes/app/MainActivity.kt
++++ b/bigeyes-app/app/src/main/java/com/bigeyes/app/MainActivity.kt
+@@ -156,7 +156,7 @@ class MainActivity : AppCompatActivity() {
+         etUrl = findViewById(R.id.et_url)
+         btnHome = findViewById(R.id.btn_home)
+         btnBack = findViewById(R.id.btn_back)
+-        btnForward = findViewById(R.id.btn_forward)
++        btnForward = findViewById(R.id.btn_nav_forward)
+         btnRefresh = findViewById(R.id.btn_refresh)
+         btnBookmark = findViewById(R.id.btn_bookmark)
+         btnCast = findViewById(R.id.btn_cast)
+diff --git a/bigeyes-app/app/src/main/res/layout/activity_main.xml b/bigeyes-app/app/src/main/res/layout/activity_main.xml
+index 616d573..2f858de 100644
+--- a/bigeyes-app/app/src/main/res/layout/activity_main.xml
++++ b/bigeyes-app/app/src/main/res/layout/activity_main.xml
+@@ -133,7 +133,7 @@
+             android:contentDescription="后退" />
+ 
+         <androidx.appcompat.widget.AppCompatImageButton
+-            android:id="@+id/btn_forward"
++            android:id="@+id/btn_nav_forward"
+             android:layout_width="0dp"
+             android:layout_height="match_parent"
+             android:layout_weight="1"
+-- 
+2.43.0
+

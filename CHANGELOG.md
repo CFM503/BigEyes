@@ -1,5 +1,15 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.20] - 2026-08-22
+
+### 🔴 彻底修复桌面点击图标必现闪退问题（ID 冲突导致的 ClassCastException）
+* **根因定位**：`activity_main.xml` 底部导航栏的「前进 ▶」按钮（`AppCompatImageButton`）与被 `<include>` 引入的播控条 `view_playback_control.xml` 中的「+15s」快进按钮（`Button`）**共用了同一个资源 ID `btn_forward`**。由于两者被解析到同一份视图树中，`MainActivity.initViews()` 里 `findViewById(R.id.btn_forward)` 命中的是视图树中先出现的播控条 `Button`，而非预期的 `AppCompatImageButton`，在赋值给 `ImageButton` 类型字段时触发 `ClassCastException`；
+* **崩溃位置**：`onCreate()` → `initViews()` 阶段同步抛出未捕获异常，导致应用在桌面点击图标启动后**每次必现瞬间闪退**，无法进入任何界面；
+* **修复方案**：将底部导航栏「前进」按钮的 ID 由 `btn_forward` 重命名为唯一的 `btn_nav_forward`，并同步更新 `MainActivity.kt` 中对应的 `findViewById` 调用，彻底消除 ID 命名空间冲突；播控条的 `btn_forward`（+15s 快进）功能不受影响，保持原样；
+* **验证**：已核查 `activity_main.xml` 与其 `<include>` 的 `view_playback_control.xml` 合并后的完整 ID 列表，确认不再存在任何重复 ID。
+
+---
+
 ## [v2.0.19] - 2026-08-22
 
 ### 🛡️ 彻底消除冷启动前台服务异常崩溃与全量升级 AppCompat 控件

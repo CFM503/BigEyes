@@ -156,7 +156,7 @@ class MainActivity : AppCompatActivity() {
         etUrl = findViewById(R.id.et_url)
         btnHome = findViewById(R.id.btn_home)
         btnBack = findViewById(R.id.btn_back)
-        btnForward = findViewById(R.id.btn_forward)
+        btnForward = findViewById(R.id.btn_nav_forward)
         btnRefresh = findViewById(R.id.btn_refresh)
         btnBookmark = findViewById(R.id.btn_bookmark)
         btnCast = findViewById(R.id.btn_cast)

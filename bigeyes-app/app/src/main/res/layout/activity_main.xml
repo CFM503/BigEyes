@@ -133,7 +133,7 @@
             android:contentDescription="后退" />
 
         <androidx.appcompat.widget.AppCompatImageButton
-            android:id="@+id/btn_forward"
+            android:id="@+id/btn_nav_forward"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
