@@ -40,10 +40,10 @@ jobs:
           cd bigeyes-app
           ./gradlew assembleRelease --stacktrace --no-daemon
 
-      - name: Print Test Failures if any
+      - name: Print Test and Build Failures if any
         if: failure()
         run: |
-          find bigeyes-app -name "*.txt" -path "*/reports/tests/*" -exec cat {} + || true
+          find bigeyes-app -type f \( -name "*.txt" -o -name "*.log" -o -name "*.xml" \) -path "*/build/reports/*" -exec echo "=== {} ===" \; -exec cat {} + || true
 
       - name: Prepare Release Asset
         run: |
