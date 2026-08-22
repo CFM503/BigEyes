@@ -51,9 +51,15 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF_NAME:-v2.0.21}"
           mkdir -p release-artifacts
-          cp bigeyes-app/app/build/outputs/apk/release/app-release*.apk release-artifacts/BigEyes-${TAG_NAME}.apk
+          echo "Searching for APK outputs:"
+          find . -name "*.apk"
+          for apk in $(find . -name "*.apk"); do
+            echo "Found APK: $apk"
+            cp "$apk" "release-artifacts/BigEyes-${TAG_NAME}.apk"
+            break
+          done
           ls -la release-artifacts/
-          echo "Release APK generated at release-artifacts/BigEyes-${TAG_NAME}.apk"
+          echo "Prepared release asset: release-artifacts/BigEyes-${TAG_NAME}.apk"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
