@@ -81,6 +81,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSettings: ImageButton
     private lateinit var progressBar: ProgressBar
     private lateinit var topBar: View
+    private lateinit var bottomBar: View
     private lateinit var containerControl: View
     private lateinit var fullscreenContainer: FrameLayout
     private lateinit var playbackControlBar: PlaybackControlBar
@@ -145,6 +146,7 @@ class MainActivity : AppCompatActivity() {
     private fun initViews() {
         webView = findViewById(R.id.web_view)
         topBar = findViewById(R.id.top_bar)
+        bottomBar = findViewById(R.id.bottom_bar)
         etUrl = findViewById(R.id.et_url)
         btnHome = findViewById(R.id.btn_home)
         btnBack = findViewById(R.id.btn_back)
@@ -189,15 +191,15 @@ class MainActivity : AppCompatActivity() {
                     topBar.paddingRight,
                     topBar.paddingBottom
                 )
-                containerControl.setPadding(
-                    containerControl.paddingLeft,
-                    containerControl.paddingTop,
-                    containerControl.paddingRight,
+                bottomBar.setPadding(
+                    bottomBar.paddingLeft,
+                    bottomBar.paddingTop,
+                    bottomBar.paddingRight,
                     navInsets.bottom
                 )
             } else {
                 topBar.setPadding(topBar.paddingLeft, 0, topBar.paddingRight, topBar.paddingBottom)
-                containerControl.setPadding(containerControl.paddingLeft, containerControl.paddingTop, containerControl.paddingRight, 0)
+                bottomBar.setPadding(bottomBar.paddingLeft, bottomBar.paddingTop, bottomBar.paddingRight, 0)
             }
             insets
         }
@@ -356,10 +358,11 @@ class MainActivity : AppCompatActivity() {
                     // Safely detach view from any existing parent before adding
                     (view.parent as? ViewGroup)?.removeView(view)
 
-                    // Hide normal browser UI
+                    // Hide normal browser UI but keep WebView INVISIBLE to preserve hardware Surface
                     topBar.visibility = View.GONE
+                    bottomBar.visibility = View.GONE
                     progressBar.visibility = View.GONE
-                    webView.visibility = View.GONE
+                    webView.visibility = View.INVISIBLE
                     containerControl.visibility = View.GONE
 
                     // Attach custom view to fullscreen container
@@ -380,13 +383,6 @@ class MainActivity : AppCompatActivity() {
                             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                     }
 
-                    // Switch orientation to sensor landscape for video viewing
-                    try {
-                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                    } catch (e: Throwable) {
-                        Log.w(TAG, "Failed to set landscape orientation: ${e.message}")
-                    }
-
                     // Keep screen awake during fullscreen video playback
                     updateKeepScreenOn()
 
@@ -399,6 +395,7 @@ class MainActivity : AppCompatActivity() {
                     customView = null
                     customViewCallback = null
                     topBar.visibility = View.VISIBLE
+                    bottomBar.visibility = View.VISIBLE
                     webView.visibility = View.VISIBLE
                     fullscreenContainer.visibility = View.GONE
                 }
@@ -416,6 +413,7 @@ class MainActivity : AppCompatActivity() {
 
                     // Restore browser UI
                     topBar.visibility = View.VISIBLE
+                    bottomBar.visibility = View.VISIBLE
                     webView.visibility = View.VISIBLE
                     if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) {
                         containerControl.visibility = View.VISIBLE
@@ -423,13 +421,6 @@ class MainActivity : AppCompatActivity() {
 
                     // Restore system bars
                     insetsController?.show(WindowInsetsCompat.Type.systemBars())
-
-                    // Restore portrait / unspecified orientation
-                    try {
-                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                    } catch (e: Throwable) {
-                        Log.w(TAG, "Failed to restore orientation: ${e.message}")
-                    }
 
                     // Update screen keep-awake state
                     updateKeepScreenOn()
@@ -442,39 +433,6 @@ class MainActivity : AppCompatActivity() {
                     customView = null
                     customViewCallback = null
                 }
-            }
-
-            override fun onCreateWindow(
-                view: WebView?,
-                isDialog: Boolean,
-                isUserGesture: Boolean,
-                resultMsg: android.os.Message?
-            ): Boolean {
-                if (resultMsg == null) return false
-                val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
-                val tempWebView = WebView(this@MainActivity)
-                tempWebView.webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(v: WebView?, req: WebResourceRequest?): Boolean {
-                        val targetUrl = req?.url?.toString()
-                        if (!targetUrl.isNullOrBlank()) {
-                            webView.loadUrl(targetUrl)
-                        }
-                        tempWebView.destroy()
-                        return true
-                    }
-
-                    @Deprecated("Deprecated in Java")
-                    override fun shouldOverrideUrlLoading(v: WebView?, url: String?): Boolean {
-                        if (!url.isNullOrBlank()) {
-                            webView.loadUrl(url)
-                        }
-                        tempWebView.destroy()
-                        return true
-                    }
-                }
-                transport.webView = tempWebView
-                resultMsg.sendToTarget()
-                return true
             }
 
             override fun onShowFileChooser(

@@ -339,10 +339,17 @@ object VideoSnifferHelper {
                 }
 
                 scanNow();
-                setInterval(scanNow, 1500);
+                setInterval(function() {
+                    try { scanNow(); } catch(e) {}
+                }, 2000);
 
+                var debounceTimer = null;
                 var observer = new MutationObserver(function() {
-                    scanNow();
+                    if (debounceTimer) return;
+                    debounceTimer = setTimeout(function() {
+                        debounceTimer = null;
+                        try { scanNow(); } catch(e) {}
+                    }, 1000);
                 });
                 if (document.body) {
                     observer.observe(document.body, { childList: true, subtree: true });
