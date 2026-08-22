@@ -452,43 +452,9 @@ class MainActivity : AppCompatActivity() {
                     targetWebView.visibility = View.VISIBLE
                     fullscreenContainer.visibility = View.GONE
                 }
-            }
-
             override fun onHideCustomView() {
-                try {
-                    if (customView == null) return
-
-                    // Detach custom view
-                    (customView?.parent as? ViewGroup)?.removeView(customView)
-                    fullscreenContainer.removeAllViews()
-                    fullscreenContainer.visibility = View.GONE
-                    customView = null
-
-                    // Restore browser UI
-                    topBar.visibility = View.VISIBLE
-                    bottomBar.visibility = View.VISIBLE
-                    targetWebView.visibility = View.VISIBLE
-                    if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) {
-                        containerControl.visibility = View.VISIBLE
-                    }
-
-                    // Restore system bars
-                    insetsController?.show(WindowInsetsCompat.Type.systemBars())
-
-                    // Update screen keep-awake state
-                    updateKeepScreenOn()
-
-                    customViewCallback?.onCustomViewHidden()
-                    customViewCallback = null
-                    Log.d(TAG, "Exited fullscreen custom view")
-                } catch (e: Throwable) {
-                    Log.e(TAG, "Error in onHideCustomView: ${e.message}", e)
-                    customView = null
-                    customViewCallback = null
-                }
+                hideFullscreenCustomView()
             }
-
-            override fun onShowFileChooser(
                 wv: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
                 fileChooserParams: FileChooserParams?
@@ -885,12 +851,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun hideFullscreenCustomView() {
+        try {
+            if (customView == null) return
+
+            // Detach custom view
+            (customView?.parent as? ViewGroup)?.removeView(customView)
+            fullscreenContainer.removeAllViews()
+            fullscreenContainer.visibility = View.GONE
+            customView = null
+
+            // Restore browser UI
+            topBar.visibility = View.VISIBLE
+            bottomBar.visibility = View.VISIBLE
+            webView.visibility = View.VISIBLE
+            if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) {
+                containerControl.visibility = View.VISIBLE
+            }
+
+            // Restore system bars
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
+
+            // Update screen keep-awake state
+            updateKeepScreenOn()
+
+            customViewCallback?.onCustomViewHidden()
+            customViewCallback = null
+            Log.d(TAG, "Exited fullscreen custom view")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error in hideFullscreenCustomView: ${e.message}", e)
+            customView = null
+            customViewCallback = null
+        }
+    }
+
     private fun setupBackNavigation() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (customView != null) {
-                    val chromeClient = webView.webChromeClient
-                    chromeClient?.onHideCustomView()
+                    hideFullscreenCustomView()
                     return
                 }
 
