@@ -45,5 +45,9 @@ class SnifferWebViewClientTest {
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://adservice.google.com/hls/ad.m3u8"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://cdn.adv.com/guanggao/index.m3u8"))
         assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://union.dsp.com/creative/adv.m3u8"))
+
+        // Web proxy image URLs should be filtered
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://wsrv.nl/?url=https%3A%2F%2Fimage.tmdb.org%2Ft%2Fp%2Fw500%2Fabc.jpg"))
+        assertFalse(VideoSnifferHelper.isVideoStreamUrl("https://example.com/_next/static/chunks/main.js"))
     }
 }

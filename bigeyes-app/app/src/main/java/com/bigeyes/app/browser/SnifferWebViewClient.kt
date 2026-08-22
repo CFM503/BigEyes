@@ -4,11 +4,9 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
@@ -22,11 +20,19 @@ import com.bigeyes.app.model.VideoCandidate
 class SnifferWebViewClient(
     private val onPageTitleChanged: ((String?) -> Unit)? = null,
     private val onPageLoadingChanged: ((Boolean) -> Unit)? = null,
-    var onRendererGoneCallback: ((didCrash: Boolean) -> Unit)? = null
+    private val onPageUrlChanged: ((String?) -> Unit)? = null,
+    var onRendererGoneCallback: ((didCrash: Boolean, failedUrl: String?) -> Unit)? = null
 ) : WebViewClient() {
 
     companion object {
         private const val TAG = "SnifferWebViewClient"
+
+        // Tier 1 Fast static asset extensions filter
+        private val NON_MEDIA_EXTENSIONS = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "svg", "ico", "avif", "bmp",
+            "css", "js", "json", "woff", "woff2", "ttf", "eot", "otf",
+            "map", "html", "htm", "txt", "xml", "pdf"
+        )
     }
 
     private val mainHandler by lazy {
@@ -37,21 +43,41 @@ class SnifferWebViewClient(
         }
     }
 
+    private fun isStaticNonMediaUrl(rawUrl: String): Boolean {
+        val clean = rawUrl.substringBefore('?').substringBefore('#')
+        val dotIdx = clean.lastIndexOf('.')
+        if (dotIdx != -1 && dotIdx < clean.length - 1) {
+            val ext = clean.substring(dotIdx + 1).lowercase()
+            if (ext in NON_MEDIA_EXTENSIONS) {
+                return true
+            }
+        }
+        return false
+    }
+
     override fun shouldInterceptRequest(
         view: WebView?,
         request: WebResourceRequest?
     ): WebResourceResponse? {
         if (request == null) return null
 
-        val uri = request.url
+        val uri = request.url ?: return null
         val rawUrl = uri.toString()
-        val directUrl = VideoSnifferHelper.extractDirectVideoUrl(rawUrl)
 
+        // Tier 1: Cheap fast filter for non-media static web assets
+        if (isStaticNonMediaUrl(rawUrl)) {
+            return super.shouldInterceptRequest(view, request)
+        }
+
+        // Tier 2: Deep media analysis only for prospective stream candidates
+        val directUrl = VideoSnifferHelper.extractDirectVideoUrl(rawUrl)
         if (VideoSnifferHelper.isVideoStreamUrl(directUrl)) {
             Log.d(TAG, "Sniffed candidate stream: $directUrl (raw: $rawUrl)")
             val headers = request.requestHeaders ?: emptyMap()
             val referer = headers["Referer"] ?: headers["referer"] ?: view?.url
             val userAgent = headers["User-Agent"] ?: headers["user-agent"] ?: view?.settings?.userAgentString
+
+            // Only query CookieManager when a confirmed video resource is intercepted
             val cookie = headers["Cookie"] ?: headers["cookie"] ?: try {
                 CookieManager.getInstance().getCookie(directUrl)
             } catch (_: Throwable) {
@@ -90,6 +116,7 @@ class SnifferWebViewClient(
         super.onPageStarted(view, url, favicon)
         if (url != null && !url.startsWith("about:") && !url.startsWith("javascript:")) {
             CandidateManager.clear()
+            onPageUrlChanged?.invoke(url)
         }
         onPageLoadingChanged?.invoke(true)
         injectSnifferScript(view)
@@ -99,6 +126,9 @@ class SnifferWebViewClient(
         super.onPageFinished(view, url)
         onPageLoadingChanged?.invoke(false)
         onPageTitleChanged?.invoke(view?.title)
+        if (url != null && !url.startsWith("about:") && !url.startsWith("javascript:")) {
+            onPageUrlChanged?.invoke(url)
+        }
 
         // Persist login cookies and session tokens immediately to disk
         try {
@@ -166,24 +196,18 @@ class SnifferWebViewClient(
         } catch (_: Throwable) {
             false
         }
-        Log.e(TAG, "Chromium Render Process Gone! didCrash=$didCrash")
+        val currentUrl = view?.url
+        val webViewHash = view?.hashCode()
+        Log.e(TAG, "[WebViewRenderer] Renderer Gone! didCrash=$didCrash, webViewHashCode=$webViewHash, url=$currentUrl")
 
-        // Safely detach the crashed renderer view to free memory
+        // Notify MainActivity to handle clean teardown and fresh WebView recreation
         try {
-            (view?.parent as? ViewGroup)?.removeView(view)
-            view?.destroy()
-        } catch (e: Throwable) {
-            Log.w(TAG, "Error destroying gone WebView: ${e.message}")
-        }
-
-        // Notify UI to gracefully recover / reload without terminating the application process
-        try {
-            onRendererGoneCallback?.invoke(didCrash)
+            onRendererGoneCallback?.invoke(didCrash, currentUrl)
         } catch (e: Throwable) {
             Log.e(TAG, "Error in onRendererGoneCallback: ${e.message}")
         }
 
-        // Returning TRUE indicates that the host application handled the situation and must NOT be killed!
+        // Returning TRUE tells Android that host application handled the situation and must NOT be killed!
         return true
     }
 

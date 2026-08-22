@@ -147,7 +147,10 @@ object VideoSnifferHelper {
         return """
             (function() {
                 window.__bigeyes_recorded_streams__ = window.__bigeyes_recorded_streams__ || [];
-                var reportedMap = {};
+                var reportedMap = window.__bigeyes_reported_map__ || {};
+                window.__bigeyes_reported_map__ = reportedMap;
+                var hookedVideos = window.__bigeyes_hooked_videos__ || (typeof WeakSet !== 'undefined' ? new WeakSet() : null);
+                window.__bigeyes_hooked_videos__ = hookedVideos;
 
                 function recordAndReport(url, title) {
                     if (!url || typeof url !== 'string') return;
@@ -212,13 +215,15 @@ object VideoSnifferHelper {
                 }
 
                 function checkAnyVideoPlaying() {
-                    var videos = document.querySelectorAll('video');
-                    for (var i = 0; i < videos.length; i++) {
-                        var v = videos[i];
-                        if (!v.paused && !v.ended && v.readyState > 1) {
-                            return true;
+                    try {
+                        var videos = document.querySelectorAll('video');
+                        for (var i = 0; i < videos.length; i++) {
+                            var v = videos[i];
+                            if (!v.paused && !v.ended && v.readyState > 1) {
+                                return true;
+                            }
                         }
-                    }
+                    } catch(e) {}
                     return false;
                 }
 
@@ -245,7 +250,7 @@ object VideoSnifferHelper {
                     } catch(e) {}
                 }
 
-                // If already installed, just trigger an immediate check on active videos
+                // If already installed, trigger lightweight playback state check
                 if (window.__bigeyes_sniffer_installed__) {
                     try {
                         if (checkAnyVideoPlaying()) {
@@ -327,12 +332,20 @@ object VideoSnifferHelper {
                     };
                 } catch(e) {}
 
-                // 5. Periodic & MutationObserver Scan
+                // 5. Periodic & MutationObserver Scan with WeakSet & True Debounce
                 function scanNow() {
                     try {
                         var videos = document.querySelectorAll('video');
                         for (var i = 0; i < videos.length; i++) {
                             var v = videos[i];
+                            if (hookedVideos) {
+                                if (hookedVideos.has(v)) {
+                                    if (v.src && isVideoUrl(v.src)) recordAndReport(v.src, document.title);
+                                    if (v.currentSrc && isVideoUrl(v.currentSrc)) recordAndReport(v.currentSrc, document.title);
+                                    continue;
+                                }
+                                hookedVideos.add(v);
+                            }
                             setupVideoListeners(v);
                             if (v.src && isVideoUrl(v.src)) recordAndReport(v.src, document.title);
                             if (v.currentSrc && isVideoUrl(v.currentSrc)) recordAndReport(v.currentSrc, document.title);
@@ -360,16 +373,31 @@ object VideoSnifferHelper {
                 }
 
                 scanNow();
-                setInterval(function() {
-                    try { scanNow(); } catch(e) {}
-                }, 3000);
+
+                if (window.__bigeyes_sniffer_interval__) {
+                    clearInterval(window.__bigeyes_sniffer_interval__);
+                }
+                window.__bigeyes_sniffer_interval__ = setInterval(function() {
+                    try {
+                        if (document.hidden) return;
+                        if (checkAnyVideoPlaying()) {
+                            reportPlaybackState(true);
+                        }
+                    } catch(e) {}
+                }, 5000);
 
                 var debounceTimer = null;
                 var observer = new MutationObserver(function() {
-                    if (debounceTimer) return;
+                    if (debounceTimer) {
+                        clearTimeout(debounceTimer);
+                    }
                     debounceTimer = setTimeout(function() {
                         debounceTimer = null;
-                        try { scanNow(); } catch(e) {}
+                        try {
+                            if (!document.hidden) {
+                                scanNow();
+                            }
+                        } catch(e) {}
                     }, 2000);
                 });
                 if (document.body) {

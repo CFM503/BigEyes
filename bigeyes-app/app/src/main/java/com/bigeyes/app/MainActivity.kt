@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -36,11 +37,13 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.widget.ImageViewCompat
 import androidx.lifecycle.lifecycleScope
 import com.bigeyes.app.browser.BlobDownloadBridge
 import com.bigeyes.app.browser.BookmarkManager
@@ -58,9 +61,6 @@ import com.bigeyes.app.ui.DeviceSelectDialog
 import com.bigeyes.app.ui.SettingsActivity
 import com.bigeyes.app.updater.UpdateManager
 import com.bigeyes.app.utils.AppPreferences
-import android.content.res.ColorStateList
-import androidx.core.widget.ImageViewCompat
-import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -77,6 +77,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private lateinit var webViewContainer: FrameLayout
     private lateinit var webView: WebView
     private lateinit var etUrl: EditText
     private lateinit var btnHome: ImageButton
@@ -95,6 +96,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var playbackControlBar: PlaybackControlBar
 
     private var isInlineVideoPlaying: Boolean = false
+
+    @Volatile
+    private var isRecreatingWebView: Boolean = false
+    private var lastValidUrl: String = ""
 
     private var fallbackDlnaManager: DlnaDeviceManager? = null
     private var currentCandidates: List<VideoCandidate> = emptyList()
@@ -121,13 +126,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        logMemoryUsage("onCreate_start")
         setContentView(R.layout.activity_main)
 
         insetsController = WindowCompat.getInsetsController(window, window.decorView)
 
         initViews()
         setupWindowInsets()
-        setupWebView()
+        setupWebViewInstance(webView)
         setupListeners()
         setupBackNavigation()
         requestNotificationPermission()
@@ -137,8 +143,21 @@ class MainActivity : AppCompatActivity() {
 
         // Default landing page: load user-defined or factory homepage (Tencent Video)
         val defaultUrl = AppPreferences.getHomepageUrl(this)
+        lastValidUrl = defaultUrl
         etUrl.setText(defaultUrl)
         webView.loadUrl(defaultUrl)
+        logMemoryUsage("onCreate_done")
+    }
+
+    private fun logMemoryUsage(stage: String) {
+        try {
+            val runtime = Runtime.getRuntime()
+            val total = runtime.totalMemory() / (1024 * 1024)
+            val free = runtime.freeMemory() / (1024 * 1024)
+            val max = runtime.maxMemory() / (1024 * 1024)
+            val used = total - free
+            Log.i(TAG, "[MemoryDiagnostic] stage=$stage, used=${used}MB, total=${total}MB, max=${max}MB, free=${free}MB")
+        } catch (_: Throwable) {}
     }
 
     private fun checkForUpdatesSilently() {
@@ -149,6 +168,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initViews() {
+        webViewContainer = findViewById(R.id.web_view_container)
         webView = findViewById(R.id.web_view)
         topBar = findViewById(R.id.top_bar)
         bottomBar = findViewById(R.id.bottom_bar)
@@ -234,13 +254,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
-    private fun setupWebView() {
+    private fun setupWebViewInstance(targetWebView: WebView) {
+        logMemoryUsage("setupWebViewInstance")
         // Enable persistent cookies and third-party authentication cookies
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
-        cookieManager.setAcceptThirdPartyCookies(webView, true)
+        cookieManager.setAcceptThirdPartyCookies(targetWebView, true)
 
-        val settings = webView.settings
+        val settings = targetWebView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
@@ -267,26 +288,26 @@ class MainActivity : AppCompatActivity() {
 
         // Register Blob Download JavascriptInterface bridge
         val blobBridge = BlobDownloadBridge(this)
-        webView.addJavascriptInterface(blobBridge, BlobDownloadBridge.JAVASCRIPT_NAME)
+        targetWebView.addJavascriptInterface(blobBridge, BlobDownloadBridge.JAVASCRIPT_NAME)
 
         // Register Real-time Video Sniffer JavascriptInterface bridge
         val snifferBridge = SnifferBridge(
-            getCurrentUserAgent = { webView.settings.userAgentString },
+            getCurrentUserAgent = { targetWebView.settings.userAgentString },
             getCurrentCookie = { url -> CookieManager.getInstance().getCookie(url) },
             onPlaybackStateListener = { isPlaying ->
                 isInlineVideoPlaying = isPlaying
                 updateKeepScreenOn()
             }
         )
-        webView.addJavascriptInterface(snifferBridge, SnifferBridge.JAVASCRIPT_NAME)
+        targetWebView.addJavascriptInterface(snifferBridge, SnifferBridge.JAVASCRIPT_NAME)
 
         // Download Listener for Blob, Data URI, and HTTP/HTTPS files
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
+        targetWebView.setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
             Log.d(TAG, "Download requested: $url, mime: $mimetype")
             when {
                 url.startsWith("blob:", ignoreCase = true) -> {
                     WebViewDownloadHelper.injectBlobExtractor(
-                        webView = webView,
+                        webView = targetWebView,
                         blobUrl = url,
                         suggestedFilename = "vodplus_export.json",
                         mimeType = mimetype
@@ -332,7 +353,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.webViewClient = SnifferWebViewClient(
+        targetWebView.webViewClient = SnifferWebViewClient(
             onPageTitleChanged = { title ->
                 title?.let { etUrl.setHint(it) }
             },
@@ -341,24 +362,29 @@ class MainActivity : AppCompatActivity() {
                 if (isLoading) {
                     isInlineVideoPlaying = false
                     updateKeepScreenOn()
+                    logMemoryUsage("page_load_start")
                 } else {
-                    val currentUrl = webView.url
+                    val currentUrl = targetWebView.url
                     if (!currentUrl.isNullOrBlank() && !currentUrl.startsWith("about:") && !currentUrl.startsWith("javascript:")) {
+                        lastValidUrl = currentUrl
                         etUrl.setText(currentUrl)
                     }
                     updateBookmarkIconState(currentUrl)
+                    logMemoryUsage("page_load_finished")
                 }
             },
-            onRendererGoneCallback = { didCrash ->
-                runOnUiThread {
-                    Log.w(TAG, "Renderer process recovered (didCrash=$didCrash)")
-                    val targetUrl = etUrl.text.toString().trim().ifEmpty { AppPreferences.getHomepageUrl(this@MainActivity) }
-                    webView.loadUrl(targetUrl)
+            onPageUrlChanged = { url ->
+                if (!url.isNullOrBlank() && !url.startsWith("about:") && !url.startsWith("javascript:")) {
+                    lastValidUrl = url
                 }
+            },
+            onRendererGoneCallback = { didCrash, failedUrl ->
+                Log.e(TAG, "[WebViewRenderer] Triggering safe WebView recreation: didCrash=$didCrash, failedUrl=$failedUrl")
+                recreateWebView("RendererGone(didCrash=$didCrash)", didCrash, failedUrl)
             }
         )
 
-        webView.webChromeClient = object : WebChromeClient() {
+        targetWebView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 if (newProgress < 100) {
                     progressBar.visibility = View.VISIBLE
@@ -389,7 +415,7 @@ class MainActivity : AppCompatActivity() {
                     topBar.visibility = View.GONE
                     bottomBar.visibility = View.GONE
                     progressBar.visibility = View.GONE
-                    webView.visibility = View.INVISIBLE
+                    targetWebView.visibility = View.INVISIBLE
                     containerControl.visibility = View.GONE
 
                     // Attach custom view to fullscreen container
@@ -423,7 +449,7 @@ class MainActivity : AppCompatActivity() {
                     customViewCallback = null
                     topBar.visibility = View.VISIBLE
                     bottomBar.visibility = View.VISIBLE
-                    webView.visibility = View.VISIBLE
+                    targetWebView.visibility = View.VISIBLE
                     fullscreenContainer.visibility = View.GONE
                 }
             }
@@ -441,7 +467,7 @@ class MainActivity : AppCompatActivity() {
                     // Restore browser UI
                     topBar.visibility = View.VISIBLE
                     bottomBar.visibility = View.VISIBLE
-                    webView.visibility = View.VISIBLE
+                    targetWebView.visibility = View.VISIBLE
                     if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) {
                         containerControl.visibility = View.VISIBLE
                     }
@@ -463,7 +489,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onShowFileChooser(
-                webView: WebView?,
+                wv: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
                 fileChooserParams: FileChooserParams?
             ): Boolean {
@@ -479,20 +505,17 @@ class MainActivity : AppCompatActivity() {
                     fileChooserLauncher.launch(
                         Intent.createChooser(intent, getString(R.string.file_chooser_title))
                     )
-                    return true
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed launching file chooser: ${e.message}", e)
+                    Log.w(TAG, "Failed launching file chooser: ${e.message}")
                     this@MainActivity.filePathCallback?.onReceiveValue(null)
                     this@MainActivity.filePathCallback = null
                     return false
                 }
+                return true
             }
 
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                Log.d(
-                    "BigEyesWebConsole",
-                    "${consoleMessage?.message()} -- [Line ${consoleMessage?.lineNumber()}] of ${consoleMessage?.sourceId()}"
-                )
+                Log.d("WebConsole", "[${consoleMessage?.messageLevel()}] ${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}")
                 return true
             }
 
@@ -533,7 +556,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Seamless touch transfer: clear URL bar focus when tapping webpage
-        webView.setOnTouchListener { _, event ->
+        targetWebView.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
                 if (etUrl.hasFocus()) {
                     etUrl.clearFocus()
@@ -545,6 +568,61 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun recreateWebView(reason: String, didCrash: Boolean, failedUrl: String?) {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) {
+                Log.w(TAG, "recreateWebView skipped because activity is finishing or destroyed")
+                return@runOnUiThread
+            }
+            if (isRecreatingWebView) {
+                Log.w(TAG, "recreateWebView ignored, recreation already in progress")
+                return@runOnUiThread
+            }
+            isRecreatingWebView = true
+            logMemoryUsage("before_recreateWebView")
+
+            val targetUrl = failedUrl?.takeIf { it.isNotBlank() && !it.startsWith("about:") && !it.startsWith("javascript:") }
+                ?: lastValidUrl.takeIf { it.isNotBlank() && !it.startsWith("about:") && !it.startsWith("javascript:") }
+                ?: etUrl.text.toString().trim().takeIf { it.isNotBlank() }
+                ?: AppPreferences.getHomepageUrl(this@MainActivity)
+
+            Log.w(TAG, "[WebViewRenderer] Recreating WebView due to: $reason (targetUrl=$targetUrl, didCrash=$didCrash)")
+
+            // 1. Cleanly tear down the old destroyed/crashed WebView instance
+            try {
+                webViewContainer.removeView(webView)
+                webView.stopLoading()
+                webView.removeJavascriptInterface(BlobDownloadBridge.JAVASCRIPT_NAME)
+                webView.removeJavascriptInterface(SnifferBridge.JAVASCRIPT_NAME)
+                webView.clearHistory()
+                webView.destroy()
+            } catch (e: Throwable) {
+                Log.w(TAG, "Error cleaning old WebView during recreation: ${e.message}")
+            }
+
+            // 2. Create and attach fresh WebView instance
+            val newWebView = WebView(this@MainActivity).apply {
+                id = R.id.web_view
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }
+            webViewContainer.addView(newWebView)
+            this.webView = newWebView
+
+            // 3. Setup configurations & clients on the new instance
+            setupWebViewInstance(newWebView)
+
+            // 4. Restore navigation
+            newWebView.loadUrl(targetUrl)
+
+            isRecreatingWebView = false
+            logMemoryUsage("after_recreateWebView")
+            Toast.makeText(this@MainActivity, "网页渲染引擎已恢复", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun setupListeners() {
         CandidateManager.addListener { candidates ->
             currentCandidates = candidates
@@ -553,6 +631,7 @@ class MainActivity : AppCompatActivity() {
 
         btnHome.setOnClickListener {
             val homeUrl = AppPreferences.getHomepageUrl(this)
+            lastValidUrl = homeUrl
             etUrl.setText(homeUrl)
             webView.loadUrl(homeUrl)
             updateBookmarkIconState(homeUrl)
@@ -571,9 +650,10 @@ class MainActivity : AppCompatActivity() {
         btnBookmark.setOnClickListener {
             BookmarkDialog.show(
                 activity = this,
-                currentUrl = webView.url,
+                currentUrl = webView.url ?: lastValidUrl,
                 currentTitle = webView.title
             ) { targetUrl ->
+                lastValidUrl = targetUrl
                 etUrl.setText(targetUrl)
                 webView.loadUrl(targetUrl)
                 updateBookmarkIconState(targetUrl)
@@ -586,6 +666,7 @@ class MainActivity : AppCompatActivity() {
                 if (!input.startsWith("http://") && !input.startsWith("https://")) {
                     input = "https://$input"
                 }
+                lastValidUrl = input
                 webView.loadUrl(input)
                 etUrl.clearFocus()
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
@@ -711,143 +792,95 @@ class MainActivity : AppCompatActivity() {
                                 )
                                 CandidateManager.addCandidate(candidate)
                             }
-                            Toast.makeText(this, "重新捕获到 ${scannedUrls.size} 个视频源", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(this, "未探测到正在播放的视频流，请播放后重试", Toast.LENGTH_SHORT).show()
                         }
                     }
                 },
-                onSelected = { selectedCandidate ->
-                    pickDeviceAndCast(selectedCandidate)
+                onCandidateSelected = { candidate ->
+                    pickDeviceAndCast(candidate)
                 }
             ).show()
         }
     }
 
     private fun pickDeviceAndCast(candidate: VideoCandidate) {
-        val dlnaManager = CastingForegroundService.instance?.dlnaManager
-            ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also { fallbackDlnaManager = it }
+        DeviceSelectDialog(
+            context = this,
+            lifecycleScope = lifecycleScope,
+            onDeviceSelected = { device ->
+                startCasting(candidate, device.location, device.friendlyName)
+            }
+        ).show()
+    }
 
-        lifecycleScope.launch {
-            Toast.makeText(this@MainActivity, "正在扫描局域网电视设备...", Toast.LENGTH_SHORT).show()
-            val devices = dlnaManager.scanOnce()
+    private fun startCasting(candidate: VideoCandidate, deviceUrl: String, deviceName: String) {
+        playbackControlBar.showLoading(candidate.title, deviceName)
 
-            if (devices.isEmpty()) {
-                showManualDeviceDialog(candidate)
-            } else if (devices.size > 1) {
-                DeviceSelectDialog(
-                    context = this@MainActivity,
-                    devices = devices,
-                    onManualAdd = { showManualDeviceDialog(candidate) }
-                ) { selectedDevice ->
-                    executeCast(candidate, selectedDevice.id)
-                }.show()
+        val service = CastingForegroundService.instance
+        if (service != null) {
+            service.startCasting(candidate, deviceUrl, deviceName)
+        } else {
+            val intent = Intent(this, CastingForegroundService::class.java).apply {
+                action = CastingForegroundService.ACTION_START_CAST
+                putExtra(CastingForegroundService.EXTRA_VIDEO_URL, candidate.url)
+                putExtra(CastingForegroundService.EXTRA_VIDEO_TITLE, candidate.title)
+                putExtra(CastingForegroundService.EXTRA_DEVICE_LOCATION, deviceUrl)
+                putExtra(CastingForegroundService.EXTRA_DEVICE_NAME, deviceName)
+                putExtra(CastingForegroundService.EXTRA_REFERER, candidate.referer)
+                putExtra(CastingForegroundService.EXTRA_USER_AGENT, candidate.userAgent)
+                putExtra(CastingForegroundService.EXTRA_COOKIE, candidate.cookie)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
             } else {
-                val soleId = devices.firstOrNull()?.id
-                executeCast(candidate, soleId)
+                startService(intent)
             }
         }
     }
 
-    private fun showManualDeviceDialog(candidate: VideoCandidate) {
-        val input = EditText(this).apply {
-            hint = "例如 192.168.68.236:1700"
-            setSingleLine()
-            setPadding(48, 32, 48, 32)
-        }
+    private fun triggerNextEpisodeAndCast() {
+        val nextEpisodeScript = """
+            (function() {
+                var buttons = document.querySelectorAll('button, a, span, div');
+                for (var i = 0; i < buttons.length; i++) {
+                    var el = buttons[i];
+                    var text = (el.innerText || el.textContent || '').trim();
+                    if (text === '下一集' || text === '下一话' || text === 'Next' || text === 'Next Episode') {
+                        el.click();
+                        return true;
+                    }
+                }
+                var currentActive = document.querySelector('.active, .current, [class*="active"], [class*="current"]');
+                if (currentActive) {
+                    var next = currentActive.nextElementSibling;
+                    if (next) {
+                        var target = next.querySelector('a, button') || next;
+                        target.click();
+                        return true;
+                    }
+                }
+                return false;
+            })();
+        """.trimIndent()
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle("手动输入投屏设备 IP")
-            .setMessage("未自动搜到设备（可能受路由器组播限制）。请输入电脑 Kodi 或电视的 IP 与端口进行直连：")
-            .setView(input)
-            .setPositiveButton("连接并投屏") { _, _ ->
-                val text = input.text.toString().trim()
-                if (text.isNotEmpty()) {
-                    val dlnaManager = CastingForegroundService.instance?.dlnaManager
-                        ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also { fallbackDlnaManager = it }
-
-                    Toast.makeText(this@MainActivity, "正在连接 $text ...", Toast.LENGTH_SHORT).show()
-                    lifecycleScope.launch {
-                        val dev = dlnaManager.addManualDevice(text)
-                        if (dev != null) {
-                            Toast.makeText(this@MainActivity, "已连接 ${dev.name}，正在开播...", Toast.LENGTH_SHORT).show()
-                            executeCast(candidate, dev.id)
+        webView.evaluateJavascript(nextEpisodeScript) { result ->
+            val clicked = result?.toBoolean() ?: false
+            if (clicked) {
+                Toast.makeText(this, "正在切换下一集并嗅探...", Toast.LENGTH_SHORT).show()
+                CandidateManager.clear()
+                lifecycleScope.launch {
+                    delay(3000L)
+                    val candidates = CandidateManager.getCandidates()
+                    if (candidates.isNotEmpty()) {
+                        val currentStatus = CastingForegroundService.instance?.currentStatus
+                        if (currentStatus != null && currentStatus.hasActiveStream) {
+                            startCasting(candidates.first(), currentStatus.deviceLocation, currentStatus.deviceName)
                         } else {
-                            Toast.makeText(this@MainActivity, "连接失败：无法解析 $text 的 DLNA 协议", Toast.LENGTH_LONG).show()
+                            showCandidatesOrCast(candidates)
                         }
                     }
                 }
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
-    private fun executeCast(candidate: VideoCandidate, targetDeviceId: String?) {
-        val service = CastingForegroundService.instance
-        if (service == null) {
-            startCastingService()
-            Toast.makeText(this, "正在初始化本地投屏服务，请重试", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        Toast.makeText(this, "正在由手机本地代理推送至电视...", Toast.LENGTH_SHORT).show()
-
-        service.castCandidate(candidate, targetDeviceId) { success, devName ->
-            if (success) {
-                val targetName = devName ?: "电视"
-                Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
-                playbackControlBar.show(candidate.displayTitle, targetName)
             } else {
-                val err = devName ?: "未找到可用的 DLNA 电视设备"
-                Toast.makeText(this@MainActivity, "投屏失败: $err", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        CastingForegroundService.instance?.onAutoNextEpisodeListener = {
-            runOnUiThread {
-                triggerNextEpisodeAndCast()
-            }
-        }
-    }
-
-    private var isAutoAdvancing = false
-
-    private fun triggerNextEpisodeAndCast() {
-        if (isAutoAdvancing) return
-        isAutoAdvancing = true
-
-        Toast.makeText(this, "正在为您切换下一集并投屏...", Toast.LENGTH_SHORT).show()
-        val currentTargetId = CastingForegroundService.instance?.dlnaManager?.getSelectedDevice()?.id
-
-        CandidateManager.clear()
-
-        var candidateListener: ((List<VideoCandidate>) -> Unit)? = null
-        candidateListener = { candidates ->
-            if (candidates.isNotEmpty() && isAutoAdvancing) {
-                isAutoAdvancing = false
-                candidateListener?.let { CandidateManager.removeListener(it) }
-                val newCandidate = candidates.first()
-                runOnUiThread {
-                    Toast.makeText(this, "已获取下一集: ${newCandidate.displayTitle}，正在推流...", Toast.LENGTH_SHORT).show()
-                    executeCast(newCandidate, currentTargetId)
-                }
-            }
-        }
-        CandidateManager.addListener(candidateListener)
-
-        VideoSnifferHelper.triggerNextEpisode(webView) { success ->
-            if (!success) {
-                Log.d(TAG, "No next episode element found via DOM, waiting for user or fallback scan...")
-            }
-            lifecycleScope.launch {
-                delay(15000L)
-                if (isAutoAdvancing) {
-                    isAutoAdvancing = false
-                    candidateListener?.let { CandidateManager.removeListener(it) }
-                }
+                Toast.makeText(this, "未找到下一集按钮，请在网页中手动点击", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -856,22 +889,24 @@ class MainActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (customView != null) {
-                    // Step 1: Exit HTML5 Fullscreen custom view if active
-                    webView.webChromeClient?.onHideCustomView()
-                } else if (webView.canGoBack()) {
-                    // Step 2: Navigate back in WebView history
-                    webView.goBack()
-                } else {
-                    // Step 3: Exit App
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                    val chromeClient = webView.webChromeClient
+                    chromeClient?.onHideCustomView()
+                    return
                 }
+
+                if (webView.canGoBack()) {
+                    webView.goBack()
+                    return
+                }
+
+                finish()
             }
         })
     }
 
     override fun onResume() {
         super.onResume()
+        logMemoryUsage("onResume")
         try {
             webView.onResume()
             CookieManager.getInstance().flush()
@@ -882,6 +917,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        logMemoryUsage("onPause")
         try {
             webView.onPause()
             CookieManager.getInstance().flush()
@@ -892,6 +928,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        logMemoryUsage("onStop")
         try {
             CookieManager.getInstance().flush()
         } catch (e: Throwable) {
@@ -901,6 +938,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        logMemoryUsage("onDestroy_start")
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
@@ -916,5 +954,6 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Throwable) {
             Log.w(TAG, "Error during webView destruction: ${e.message}")
         }
+        logMemoryUsage("onDestroy_done")
     }
 }

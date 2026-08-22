@@ -2,18 +2,30 @@
 
 ## [v2.0.21] - 2026-08-23
 
-### 🚀 彻底修复 WebView 长时间滑动闪退、增加网站登录持久化与全链路架构加固
+### 🚀 彻底修复 WebView 长时间滑动闪退、重构 Renderer 崩溃安全恢复与登录持久化
 * **彻底根治 `vodpro.pages.dev` 等现代 SPA 聚合站长时间滑动浏览闪退问题**：
-  * **根因定位与修复**：原 JS 注入层中 `isVideoUrl` 对含 `url=http` 的海量图片代理 URL（如 TMDB / wsrv.nl 等封面海报）产生误判，导致在长列表无限滚动加载时产生数以千计的误嗅探对象，高频死循环打爆 Java Bridge 与 Chromium IPC；现已严格过滤静态图片、样式、脚本及字体资源，并加入 JS 层 URL 发现去重缓存与数组容量限制；
-  * **实现 `onRenderProcessGone` 崩溃兜底**：在 `SnifferWebViewClient` 中实现 `onRenderProcessGone`，在 Chromium 渲染进程异常或系统内存极度紧张时返回 `true`，防止 Android 默认杀死主宿主进程，并自动执行平滑恢复；
-  * **启用 `android:largeHeap="true"`**：在 `AndroidManifest.xml` 为应用分配大堆内存，从容应对高清瀑布流海量海报解码与内存缓存；
+  * **VideoSnifferHelper 性能大幅减负**：
+    * 为 `MutationObserver` 实现真正的 `debounce` 防抖机制（同一时刻仅保留单一定时器），杜绝 DOM 密集更新时的定时任务雪崩；
+    * 引入 `WeakSet` 元素级去重机制，确保每个 `<video>` 元素仅挂载一次监听器，停止无限制高频执行 `querySelectorAll('video')`；
+    * `setInterval` 延长为 5000ms 并加入 `document.hidden` 可见性检测，后台及静止状态下暂停扫描，大幅降低 Chromium Renderer 的 GPU 与 CPU 压力；
+    * 严格过滤封面代理（`wsrv.nl`, `image.tmdb.org`, `_next/static`）等海量静态图片与样式，消除对 Java Bridge 与 IPC 的洪峰阻塞。
+  * **重构 Renderer Gone 安全恢复机制（禁止复用已 Destroy 的 WebView）**：
+    * 彻底重构 `onRenderProcessGone` 恢复链路：旧 WebView 发生异常后由 `recreateWebView()` 进行解绑与销毁，动态创建全新的 `WebView` 实例并自动重新配置 Settings、JS Interface 与 WebChromeClient；
+    * 增加 `isRecreatingWebView` 恢复并发互斥锁，杜绝 Renderer 异常连续触发时的重复创建；
+    * 自动记录最后有效访问 URL 并无感重新加载；
+    * 重写 `onRenderProcessGone` 返回 `true`，防止 Android 系统直接杀死宿主应用。
+  * **启用 `android:largeHeap="true"`**：在 `AndroidManifest.xml` 为应用分配大堆内存，从容应对高清瀑布流海量海报解码与内存缓存。
+* **`shouldInterceptRequest` 双层快速过滤与按需 Cookie 查询**：
+  * **第一层（快速过滤）**：对图片、CSS、JS、字体、SVG、JSON 等静态非媒体资源做超轻量级扩展名判断直接放行，0 开销；
+  * **第二层（按需嗅探）**：仅在命中实际流媒体资源（m3u8, mp4, flv 等）时才提取直链并按需调用 `CookieManager.getInstance().getCookie()`，杜绝高频请求时的 CookieManager 锁竞争。
+* **增加全链路内存与 Renderer 诊断日志**：
+  * 在 WebView 创建、页面加载起止、Renderer Gone、页面恢复、WebView 销毁等关键生命周期节点实时输出 Used / Total / Max / Free 内存监控日志。
 * **完整的网站登录状态与 Cookie / LocalStorage 持久化机制**：
   * **开启第三方 Cookie 支持**：启用 `CookieManager.setAcceptThirdPartyCookies(webView, true)`，确保跨域与现代认证端点（JWT/OAuth/NextAuth）正常接收与维持鉴权凭据；
-  * **生命周期双向同步持久化**：在 `onPageFinished`、`onPause`、`onStop`、`onDestroy` 中即时调用 `CookieManager.getInstance().flush()`，实现应用关闭重启后自动恢复有效登录状态，主动退出登录即可清除；
+  * **生命周期双向同步持久化**：在 `onPageFinished`、`onPause`、`onStop`、`onDestroy` 中即时调用 `CookieManager.getInstance().flush()`，实现应用关闭重启后自动恢复有效登录状态，主动退出登录即可清除。
 * **全面加固 WebView 架构与网络异常处理**：
   * **优化 SSL 证书与 HTTP 错误处理**：重写 `onReceivedSslError` 与 `onReceivedHttpError`，防止证书链或 Cloudflare 异常时页面静默白屏；
-  * **完善生命周期管理**：在 `onResume` 与 `onPause` 中同步调用 `webView.onResume()` / `webView.onPause()`，在 `onDestroy` 中安全剥离并释放 WebView 资源，杜绝 Context 泄漏；
-  * **标准化 User-Agent**：设置标准现代移动端 Chrome UA，确保在 Cloudflare Edge 及各大现代前端框架下的最佳兼容性。
+  * **标准化 User-Agent**：设置标准现代移动端 Chrome UA，确保在各大现代前端框架下的最佳兼容性。
 
 ---
 
