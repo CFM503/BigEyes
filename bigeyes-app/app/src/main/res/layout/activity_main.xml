@@ -21,7 +21,9 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:background="?attr/selectableItemBackgroundBorderless"
+            app:srcCompat="@drawable/ic_home"
             android:src="@drawable/ic_home"
+            app:tint="@color/white"
             android:tint="@color/white"
             android:contentDescription="主页" />
 
@@ -46,7 +48,9 @@
             android:layout_width="36dp"
             android:layout_height="36dp"
             android:background="?attr/selectableItemBackgroundBorderless"
+            app:srcCompat="@drawable/ic_refresh"
             android:src="@drawable/ic_refresh"
+            app:tint="@color/white"
             android:tint="@color/white"
             android:contentDescription="刷新"
             android:layout_marginEnd="4dp" />
@@ -148,7 +152,9 @@
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
+            app:srcCompat="@drawable/ic_bookmark"
             android:src="@drawable/ic_bookmark"
+            app:tint="@color/white"
             android:tint="@color/white"
             android:contentDescription="书签收藏" />
 

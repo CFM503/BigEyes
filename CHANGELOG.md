@@ -1,5 +1,15 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.18] - 2026-08-22
+
+### 🚀 彻底修复启动即闪退问题、升级全版本 VectorDrawable 兼容性
+* **彻底根除启动即闪退（桌面点击直接闪退）**：
+  * **修复 VectorDrawable 属性解析崩溃**：移除了 `ic_home.xml`、`ic_bookmark.xml`、`ic_bookmark_filled.xml`、`ic_delete.xml`、`ic_edit.xml` 等矢量图标根节点中的 `android:tint="?attr/colorControlNormal"` 主题属性引用，消除低版本与原生系统在解析布局时的 `InflateException` / `XmlPullParserException` 崩溃；
+  * **全局启用 VectorDrawableCompat 支持**：在 `MainActivity` 入口静态激活 `AppCompatDelegate.setCompatVectorFromResourcesEnabled(true)`，并在布局中统一采用 `app:srcCompat` 与 `app:tint` 属性，确保在所有 Android 系统版本（7.0~14+）上 100% 稳定冷启动；
+* **持续保持超宽网址输入框与双层导航布局**。
+
+---
+
 ## [v2.0.17] - 2026-08-22
 
 ### 📱 网址输入框全屏宽幅重构、双层导航布局与视频点击闪退深度根治

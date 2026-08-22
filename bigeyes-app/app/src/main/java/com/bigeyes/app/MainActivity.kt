@@ -59,6 +59,7 @@ import com.bigeyes.app.ui.PlaybackControlBar
 import com.bigeyes.app.ui.SettingsActivity
 import com.bigeyes.app.updater.UpdateManager
 import com.bigeyes.app.utils.AppPreferences
+import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -67,6 +68,12 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+
+        init {
+            try {
+                AppCompatDelegate.setCompatVectorFromResourcesEnabled(true)
+            } catch (_: Throwable) {}
+        }
     }
 
     private lateinit var webView: WebView
