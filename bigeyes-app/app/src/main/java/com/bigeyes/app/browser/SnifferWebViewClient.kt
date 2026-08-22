@@ -128,7 +128,9 @@ class SnifferWebViewClient(
         super.onReceivedError(view, request, error)
         if (request?.isForMainFrame == true) {
             onPageLoadingChanged?.invoke(false)
-            Log.w(TAG, "Main frame load error: [${error?.errorCode}] ${error?.description} for ${request.url}")
+            val desc = try { error?.description } catch (_: Throwable) { null }
+            val code = try { error?.errorCode } catch (_: Throwable) { null }
+            Log.w(TAG, "Main frame load error: [$code] $desc for ${request.url}")
         }
     }
 
@@ -159,9 +161,12 @@ class SnifferWebViewClient(
     }
 
     override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-        val didCrash = detail?.didCrash() ?: false
-        val priority = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) detail?.rendererPriorityAtExit() else -1
-        Log.e(TAG, "Chromium Render Process Gone! didCrash=$didCrash, priority=$priority")
+        val didCrash = try {
+            detail?.didCrash() ?: false
+        } catch (_: Throwable) {
+            false
+        }
+        Log.e(TAG, "Chromium Render Process Gone! didCrash=$didCrash")
 
         // Safely detach the crashed renderer view to free memory
         try {

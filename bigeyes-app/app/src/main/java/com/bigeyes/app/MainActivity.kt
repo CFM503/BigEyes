@@ -55,7 +55,6 @@ import com.bigeyes.app.service.CastingForegroundService
 import com.bigeyes.app.ui.BookmarkDialog
 import com.bigeyes.app.ui.CandidateDialog
 import com.bigeyes.app.ui.DeviceSelectDialog
-import com.bigeyes.app.ui.PlaybackControlBar
 import com.bigeyes.app.ui.SettingsActivity
 import com.bigeyes.app.updater.UpdateManager
 import com.bigeyes.app.utils.AppPreferences
