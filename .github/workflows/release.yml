@@ -38,11 +38,13 @@ jobs:
       - name: Build Release APK
         run: |
           cd bigeyes-app
-          ./gradlew assembleRelease --stacktrace --no-daemon
+          ./gradlew assembleRelease --stacktrace --no-daemon 2>&1 | tee gradle-build.log
 
       - name: Print Test and Build Failures if any
         if: failure()
         run: |
+          echo "=== GRADLE BUILD LOG (LAST 200 LINES) ==="
+          tail -n 200 bigeyes-app/gradle-build.log || true
           find bigeyes-app -type f \( -name "*.txt" -o -name "*.log" -o -name "*.xml" \) -path "*/build/reports/*" -exec echo "=== {} ===" \; -exec cat {} + || true
 
       - name: Prepare Release Asset
