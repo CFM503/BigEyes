@@ -59,6 +59,8 @@ import com.bigeyes.app.ui.PlaybackControlBar
 import com.bigeyes.app.ui.SettingsActivity
 import com.bigeyes.app.updater.UpdateManager
 import com.bigeyes.app.utils.AppPreferences
+import android.content.res.ColorStateList
+import androidx.core.widget.ImageViewCompat
 import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
@@ -130,9 +132,6 @@ class MainActivity : AppCompatActivity() {
         setupListeners()
         setupBackNavigation()
         requestNotificationPermission()
-
-        // Ensure Foreground Service is started to host NanoHTTPD & DLNA
-        startCastingService()
 
         // Asynchronous silent check for app updates
         checkForUpdatesSilently()
@@ -213,13 +212,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startCastingService() {
-        val intent = Intent(this, CastingForegroundService::class.java).apply {
-            action = CastingForegroundService.ACTION_START_CAST
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            val intent = Intent(this, CastingForegroundService::class.java).apply {
+                action = CastingForegroundService.ACTION_START_CAST
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed starting casting service: ${e.message}")
         }
     }
 
@@ -596,10 +599,16 @@ class MainActivity : AppCompatActivity() {
                 val isBookmarked = BookmarkManager.isBookmarked(this, url)
                 if (isBookmarked) {
                     btnBookmark.setImageResource(R.drawable.ic_bookmark_filled)
-                    btnBookmark.setColorFilter(ContextCompat.getColor(this, R.color.brand_primary))
+                    ImageViewCompat.setImageTintList(
+                        btnBookmark,
+                        ColorStateList.valueOf(ContextCompat.getColor(this, R.color.brand_primary))
+                    )
                 } else {
                     btnBookmark.setImageResource(R.drawable.ic_bookmark)
-                    btnBookmark.setColorFilter(ContextCompat.getColor(this, R.color.white))
+                    ImageViewCompat.setImageTintList(
+                        btnBookmark,
+                        ColorStateList.valueOf(ContextCompat.getColor(this, R.color.white))
+                    )
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "Error updating bookmark icon state: ${e.message}")

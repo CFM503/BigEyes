@@ -1,5 +1,18 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.19] - 2026-08-22
+
+### 🛡️ 彻底消除冷启动前台服务异常崩溃与全量升级 AppCompat 控件
+* **彻底根除 Android 12/13/14 冷启动闪退 (`ForegroundServiceStartNotAllowedException`)**：
+  * 移除了 `MainActivity.onCreate()` 中在冷启动未交互阶段无条件调用 `startForegroundService()` 的逻辑，彻底根治 Android 12+ / 14 系统出于电池后台限制策略直接杀死 App 的崩溃异常；
+  * 本地投屏代理服务改为在用户主动点击「投屏」发起推送时按需安全启动，并在全流程加入 `try-catch` 熔断防护；
+* **全面升级 `AppCompatImageButton` 彻底解决布局解析崩溃**：
+  * 主界面 `activity_main.xml` 中的所有操作按钮显式升级为 `androidx.appcompat.widget.AppCompatImageButton`，配合 `app:srcCompat` 和 `app:tint` 属性，彻底消灭原生 `LayoutInflater` 解析失败导致的 `InflateException`；
+  * 新增 `BigEyesApplication` 全局 Application 托管类，在进程启动伊始即激活 `AppCompatDelegate.setCompatVectorFromResourcesEnabled(true)` 与全局未捕获异常捕获器；
+* **完整保留超宽网址输入框、双层导航与书签系统**。
+
+---
+
 ## [v2.0.18] - 2026-08-22
 
 ### 🚀 彻底修复启动即闪退问题、升级全版本 VectorDrawable 兼容性
