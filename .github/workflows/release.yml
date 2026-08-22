@@ -51,18 +51,16 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF_NAME:-v2.0.21}"
           mkdir -p release-artifacts
-          cp bigeyes-app/app/build/outputs/apk/release/app-release.apk release-artifacts/BigEyes-${TAG_NAME}.apk
-          echo "Release APK generated at release-artifacts/BigEyes-${TAG_NAME}.apk"
+          for apk in $(find bigeyes-app -name "*.apk"); do
+            cp "$apk" "release-artifacts/BigEyes-${TAG_NAME}.apk"
+            echo "Copied $apk to release-artifacts/BigEyes-${TAG_NAME}.apk"
+            break
+          done
+          ls -la release-artifacts/
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         if: startsWith(github.ref, 'refs/tags/')
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.ref_name }}
-          name: BigEyes Release ${{ github.ref_name }}
-          files: release-artifacts/*
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+        run: |
+          gh release create ${{ github.ref_name }} release-artifacts/*.apk --title "BigEyes Release ${{ github.ref_name }}" --generate-notes || gh release upload ${{ github.ref_name }} release-artifacts/*.apk --clobber
