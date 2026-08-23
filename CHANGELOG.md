@@ -1,5 +1,19 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.25] - 2026-08-23
+
+### 🛠 发布修复与项目入口调整
+* **修复 Release 构建失败**：
+  * 在 `MainActivity` 中补充 `PlaybackControlBar` 导入，解决 `Unresolved reference: PlaybackControlBar`；
+  * 将 `CandidateDialog` 调用参数由 `onCandidateSelected` 修正为实际定义的 `onSelected`；
+* **更新项目主页入口**：
+  * 设置页原 GitHub 仓库跳转地址改为 `https://www.douyin.com/`；
+* **版本发布**：
+  * `versionCode` 更新为 `27`；
+  * `versionName` 更新为 `2.0.25`。
+
+---
+
 ## [v2.0.23] - 2026-08-23
 
 ### 🚀 在线自动更新发布链路加固与架构完善
