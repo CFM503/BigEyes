@@ -19,9 +19,7 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystoreFile = file("keystore/bigeyes-release.jks").takeIf { it.exists() }
-                ?: rootProject.file("app/keystore/bigeyes-release.jks").takeIf { it.exists() }
-                ?: rootProject.file("keystore/bigeyes-release.jks")
+            val keystoreFile = file("keystore/bigeyes-release.jks")
             if (keystoreFile.exists()) {
                 storeFile = keystoreFile
                 storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "bigeyes123"
