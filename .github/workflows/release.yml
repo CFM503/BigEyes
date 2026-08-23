@@ -49,7 +49,7 @@ jobs:
 
       - name: Prepare Release Asset
         run: |
-          TAG_NAME="${GITHUB_REF_NAME:-v2.0.21}"
+          TAG_NAME="${GITHUB_REF_NAME:-v2.0.22}"
           mkdir -p release-artifacts
           for apk in $(find bigeyes-app -name "*.apk"); do
             cp "$apk" "release-artifacts/BigEyes-${TAG_NAME}.apk"

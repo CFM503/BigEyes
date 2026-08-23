@@ -1,5 +1,21 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.0.22] - 2026-08-23
+
+### 🚀 架构稳定性加固与新版本发布
+* **WebView 重建与 Renderer Gone 恢复链路全量就绪**：
+  * 在 `MainActivity` 建立 `recreateWebView` 与 `web_view_container` 动态容器机制，彻底杜绝已 Destroy 对象的二次复用；
+  * 引入 `isRecreatingWebView` 互斥锁，保障 Chromium 渲染引擎在极端压力崩溃时平滑且无感恢复页面；
+* **VideoSnifferHelper 视频嗅探性能全面减负**：
+  * 实现单一定时器 `debounce` 防抖与 `WeakSet` 元素级去重，消除无限滚动浏览时的 DOM 密集重复扫描；
+  * 严格过滤封面代理与静态资源，消除跨进程 IPC 洪峰；
+* **登录态持久化与 Cookie / LocalStorage 保障**：
+  * 启用第三方 Cookie 与 DOMStorage 支持，多生命周期节点自动持久化刷盘；
+* **全链路内存诊断**：
+  * 加入关键生命周期的 Used/Total/Max/Free 堆内存诊断日志。
+
+---
+
 ## [v2.0.21] - 2026-08-23
 
 ### 🚀 彻底修复 WebView 长时间滑动闪退、重构 Renderer 崩溃安全恢复与登录持久化
