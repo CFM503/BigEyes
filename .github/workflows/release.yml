@@ -51,7 +51,14 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF_NAME:-v2.0.22}"
           mkdir -p release-artifacts
-          cp bigeyes-app/app/build/outputs/apk/release/app-release.apk release-artifacts/BigEyes-${TAG_NAME}.apk
+          for f in bigeyes-app/app/build/outputs/apk/release/*.apk; do
+            if [ -f "$f" ]; then
+              cp "$f" "release-artifacts/BigEyes-${TAG_NAME}.apk"
+              echo "Copied $f to release-artifacts/BigEyes-${TAG_NAME}.apk"
+              break
+            fi
+          done
+          ls -la release-artifacts/
           echo "Release APK generated at release-artifacts/BigEyes-${TAG_NAME}.apk"
 
       - name: Publish GitHub Release
