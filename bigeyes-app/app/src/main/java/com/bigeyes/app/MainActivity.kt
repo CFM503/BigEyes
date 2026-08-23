@@ -449,12 +449,14 @@ class MainActivity : AppCompatActivity() {
                     customViewCallback = null
                     topBar.visibility = View.VISIBLE
                     bottomBar.visibility = View.VISIBLE
-                    targetWebView.visibility = View.VISIBLE
-                    fullscreenContainer.visibility = View.GONE
                 }
+            }
+
             override fun onHideCustomView() {
                 hideFullscreenCustomView()
             }
+
+            override fun onShowFileChooser(
                 wv: WebView?,
                 filePathCallback: ValueCallback<Array<Uri>>?,
                 fileChooserParams: FileChooserParams?

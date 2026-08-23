@@ -38,7 +38,7 @@ jobs:
       - name: Build Release APK
         run: |
           cd bigeyes-app
-          ./gradlew assembleRelease --stacktrace --no-daemon 2>&1 | tee gradle-build.log
+          ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Print Test and Build Failures if any
         if: failure()
