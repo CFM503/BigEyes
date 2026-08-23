@@ -11,15 +11,17 @@ android {
         applicationId = "com.bigeyes.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 24
-        versionName = "2.0.22"
+        versionCode = 25
+        versionName = "2.0.23"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
         create("release") {
-            val keystoreFile = file("keystore/bigeyes-release.jks")
+            val keystoreFile = file("keystore/bigeyes-release.jks").takeIf { it.exists() }
+                ?: rootProject.file("app/keystore/bigeyes-release.jks").takeIf { it.exists() }
+                ?: rootProject.file("keystore/bigeyes-release.jks")
             if (keystoreFile.exists()) {
                 storeFile = keystoreFile
                 storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "bigeyes123"
