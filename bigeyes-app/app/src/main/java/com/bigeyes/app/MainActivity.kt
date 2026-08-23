@@ -736,8 +736,9 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.no_candidates, Toast.LENGTH_SHORT).show()
             return
         }
+
         if (candidates.size == 1) {
-            pickDeviceAndCast(candidates.first())
+            showDeviceSelectOrCast(candidates.first())
         } else {
             CandidateDialog(
                 context = this,
@@ -764,43 +765,90 @@ class MainActivity : AppCompatActivity() {
                     }
                 },
                 onCandidateSelected = { candidate ->
-                    pickDeviceAndCast(candidate)
+                    showDeviceSelectOrCast(candidate)
                 }
             ).show()
         }
     }
 
-    private fun pickDeviceAndCast(candidate: VideoCandidate) {
-        DeviceSelectDialog(
-            context = this,
-            lifecycleScope = lifecycleScope,
-            onDeviceSelected = { device ->
-                startCasting(candidate, device.location, device.friendlyName)
+    private fun showDeviceSelectOrCast(candidate: VideoCandidate) {
+        val service = CastingForegroundService.instance
+        val dlnaManager = service?.dlnaManager ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also {
+            fallbackDlnaManager = it
+        }
+
+        lifecycleScope.launch {
+            Toast.makeText(this@MainActivity, "正在扫描局域网电视设备...", Toast.LENGTH_SHORT).show()
+            val devices = dlnaManager.scanOnce()
+
+            if (devices.isEmpty()) {
+                showManualDeviceDialog(candidate)
+            } else if (devices.size > 1) {
+                DeviceSelectDialog(
+                    context = this@MainActivity,
+                    devices = devices,
+                    onManualAdd = { showManualDeviceDialog(candidate) }
+                ) { selectedDevice ->
+                    executeCast(candidate, selectedDevice.id)
+                }.show()
+            } else {
+                val soleId = devices.firstOrNull()?.id
+                executeCast(candidate, soleId)
             }
-        ).show()
+        }
     }
 
-    private fun startCasting(candidate: VideoCandidate, deviceUrl: String, deviceName: String) {
-        playbackControlBar.showLoading(candidate.title, deviceName)
+    private fun showManualDeviceDialog(candidate: VideoCandidate) {
+        val input = EditText(this).apply {
+            hint = "例如 192.168.68.236:1700"
+            setSingleLine()
+            setPadding(48, 32, 48, 32)
+        }
 
-        val service = CastingForegroundService.instance
-        if (service != null) {
-            service.startCasting(candidate, deviceUrl, deviceName)
-        } else {
-            val intent = Intent(this, CastingForegroundService::class.java).apply {
-                action = CastingForegroundService.ACTION_START_CAST
-                putExtra(CastingForegroundService.EXTRA_VIDEO_URL, candidate.url)
-                putExtra(CastingForegroundService.EXTRA_VIDEO_TITLE, candidate.title)
-                putExtra(CastingForegroundService.EXTRA_DEVICE_LOCATION, deviceUrl)
-                putExtra(CastingForegroundService.EXTRA_DEVICE_NAME, deviceName)
-                putExtra(CastingForegroundService.EXTRA_REFERER, candidate.referer)
-                putExtra(CastingForegroundService.EXTRA_USER_AGENT, candidate.userAgent)
-                putExtra(CastingForegroundService.EXTRA_COOKIE, candidate.cookie)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("手动输入投屏设备 IP")
+            .setMessage("未自动搜到设备（可能受路由器组播限制）。请输入电脑 Kodi 或电视的 IP 与端口进行直连：")
+            .setView(input)
+            .setPositiveButton("连接并投屏") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isNotEmpty()) {
+                    val dlnaManager = CastingForegroundService.instance?.dlnaManager
+                        ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also { fallbackDlnaManager = it }
+
+                    Toast.makeText(this@MainActivity, "正在连接 $text ...", Toast.LENGTH_SHORT).show()
+                    lifecycleScope.launch {
+                        val dev = dlnaManager.addManualDevice(text)
+                        if (dev != null) {
+                            Toast.makeText(this@MainActivity, "已连接设备: ${dev.name}", Toast.LENGTH_SHORT).show()
+                            executeCast(candidate, dev.id)
+                        } else {
+                            Toast.makeText(this@MainActivity, "连接失败：无法解析 $text 的 DLNA 协议", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun executeCast(candidate: VideoCandidate, targetDeviceId: String?) {
+        val service = CastingForegroundService.instance
+        if (service == null) {
+            startCastingService()
+            Toast.makeText(this, "正在初始化本地投屏服务，请重试", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "正在由手机本地代理推送至电视...", Toast.LENGTH_SHORT).show()
+
+        service.castCandidate(candidate, targetDeviceId) { success, devName ->
+            if (success) {
+                val targetName = devName ?: "电视"
+                Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
+                playbackControlBar.show(candidate.displayTitle, targetName)
             } else {
-                startService(intent)
+                val err = devName ?: "未找到可用的 DLNA 电视设备"
+                Toast.makeText(this@MainActivity, "投屏失败: $err", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -839,12 +887,7 @@ class MainActivity : AppCompatActivity() {
                     delay(3000L)
                     val candidates = CandidateManager.getCandidates()
                     if (candidates.isNotEmpty()) {
-                        val currentStatus = CastingForegroundService.instance?.currentStatus
-                        if (currentStatus != null && currentStatus.hasActiveStream) {
-                            startCasting(candidates.first(), currentStatus.deviceLocation, currentStatus.deviceName)
-                        } else {
-                            showCandidatesOrCast(candidates)
-                        }
+                        showCandidatesOrCast(candidates)
                     }
                 }
             } else {
@@ -913,6 +956,11 @@ class MainActivity : AppCompatActivity() {
             CookieManager.getInstance().flush()
         } catch (e: Throwable) {
             Log.w(TAG, "Error in onResume: ${e.message}")
+        }
+        CastingForegroundService.instance?.onAutoNextEpisodeListener = {
+            runOnUiThread {
+                triggerNextEpisodeAndCast()
+            }
         }
     }
 
