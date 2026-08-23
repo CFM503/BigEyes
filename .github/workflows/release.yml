@@ -62,11 +62,10 @@ jobs:
           echo "Release APK generated at release-artifacts/BigEyes-${TAG_NAME}.apk"
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         if: startsWith(github.ref, 'refs/tags/')
-        with:
-          name: BigEyes Release ${{ github.ref_name }}
-          files: release-artifacts/*.apk
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "Publishing release for tag: $TAG"
+          gh release upload "$TAG" release-artifacts/*.apk --clobber || gh release create "$TAG" release-artifacts/*.apk --title "BigEyes Release $TAG" --generate-notes
