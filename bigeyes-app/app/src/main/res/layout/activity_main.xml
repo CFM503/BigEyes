@@ -169,6 +169,20 @@
             android:contentDescription="设置" />
     </LinearLayout>
 
+    <!-- Next Episode Countdown Overlay -->
+    <FrameLayout
+        android:id="@+id/container_next_countdown"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <include layout="@layout/view_next_episode_countdown" />
+    </FrameLayout>
+
     <!-- Fullscreen Custom View Container for HTML5 Video -->
     <FrameLayout
         android:id="@+id/fullscreen_custom_content"

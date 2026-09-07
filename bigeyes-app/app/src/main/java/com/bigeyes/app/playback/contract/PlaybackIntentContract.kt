@@ -1,0 +1,43 @@
+package com.bigeyes.app.playback.contract
+
+object PlaybackIntentContract {
+    const val PACKAGE_BIGEYES_TV = "com.bigeyes.tv"
+    const val TV_MAIN_ACTIVITY = "com.bigeyes.tv.MainActivity"
+    const val TV_COMMAND_RECEIVER = "com.bigeyes.tv.playback.PlaybackCommandReceiver"
+
+    // Commands sent from BigEyes to BigEyesTV
+    const val ACTION_PLAY = "com.bigeyes.tv.action.PLAY"
+    const val ACTION_PAUSE = "com.bigeyes.tv.action.PAUSE"
+    const val ACTION_RESUME = "com.bigeyes.tv.action.RESUME"
+    const val ACTION_STOP = "com.bigeyes.tv.action.STOP"
+    const val ACTION_NEXT = "com.bigeyes.tv.action.NEXT"
+    const val ACTION_PREVIOUS = "com.bigeyes.tv.action.PREVIOUS"
+    const val ACTION_SEEK = "com.bigeyes.tv.action.SEEK"
+
+    // Status broadcast sent from BigEyesTV back to BigEyes
+    const val ACTION_STATUS_UPDATE = "com.bigeyes.tv.action.STATUS_UPDATE"
+
+    // Extras
+    const val EXTRA_PLAY_URL = "extra_play_url"
+    const val EXTRA_SERIES_ID = "extra_series_id"
+    const val EXTRA_SERIES_TITLE = "extra_series_title"
+    const val EXTRA_SEASON_NUMBER = "extra_season_number"
+    const val EXTRA_EPISODE_NUMBER = "extra_episode_number"
+    const val EXTRA_EPISODE_INDEX = "extra_episode_index"
+    const val EXTRA_EPISODE_TITLE = "extra_episode_title"
+    const val EXTRA_TOTAL_COUNT = "extra_total_count"
+    const val EXTRA_POSITION_MS = "extra_position_ms"
+    const val EXTRA_DURATION_MS = "extra_duration_ms"
+    const val EXTRA_AUTO_PLAY_NEXT = "extra_auto_play_next"
+    const val EXTRA_STATE = "extra_state" // PLAYING, PAUSED, COMPLETED, STOPPED, ERROR
+    const val EXTRA_HEADER_REFERER = "extra_header_referer"
+    const val EXTRA_HEADER_USER_AGENT = "extra_header_user_agent"
+    const val EXTRA_HEADER_COOKIE = "extra_header_cookie"
+
+    // States
+    const val STATE_PLAYING = "PLAYING"
+    const val STATE_PAUSED = "PAUSED"
+    const val STATE_COMPLETED = "COMPLETED"
+    const val STATE_STOPPED = "STOPPED"
+    const val STATE_ERROR = "ERROR"
+}

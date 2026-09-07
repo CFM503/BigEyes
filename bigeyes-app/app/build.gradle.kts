@@ -11,8 +11,8 @@ android {
         applicationId = "com.bigeyes.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 27
-        versionName = "2.0.25"
+        versionCode = 28
+        versionName = "2.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -88,4 +88,5 @@ dependencies {
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+    testImplementation("org.json:json:20240303")
 }

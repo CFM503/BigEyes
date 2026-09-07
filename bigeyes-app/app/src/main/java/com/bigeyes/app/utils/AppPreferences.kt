@@ -7,12 +7,21 @@ object AppPreferences {
 
     private const val PREFS_NAME = "bigeyes_browser_prefs"
     private const val KEY_HOMEPAGE_URL = "default_homepage_url"
+    private const val KEY_AUTO_PLAY_NEXT = "auto_play_next"
 
-    // Default factory homepage: Tencent Video
-    const val DEFAULT_HOMEPAGE_URL = "https://v.qq.com"
+    // Default factory homepage
+    const val DEFAULT_HOMEPAGE_URL = "https://zip0.com/"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    fun isAutoPlayNext(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_AUTO_PLAY_NEXT, true)
+    }
+
+    fun setAutoPlayNext(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_AUTO_PLAY_NEXT, enabled).apply()
     }
 
     fun getHomepageUrl(context: Context): String {

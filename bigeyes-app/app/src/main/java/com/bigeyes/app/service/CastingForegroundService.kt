@@ -14,6 +14,7 @@ import com.bigeyes.app.MainActivity
 import com.bigeyes.app.dlna.DlnaDeviceManager
 import com.bigeyes.app.model.CastStatus
 import com.bigeyes.app.model.VideoCandidate
+import com.bigeyes.app.model.playback.PlaybackItem
 import com.bigeyes.app.proxy.EmbeddedProxyServer
 import com.bigeyes.app.proxy.StreamManager
 import kotlinx.coroutines.*
@@ -212,6 +213,18 @@ class CastingForegroundService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+    }
+
+    fun castPlaybackItem(item: com.bigeyes.app.model.playback.PlaybackItem, targetDeviceId: String? = null, onResult: ((Boolean, String?) -> Unit)? = null) {
+        val candidate = VideoCandidate(
+            url = item.playUrl,
+            referer = item.headers["Referer"],
+            userAgent = item.headers["User-Agent"],
+            cookie = item.headers["Cookie"],
+            title = item.displayTitle,
+            timestamp = System.currentTimeMillis()
+        )
+        castCandidate(candidate, targetDeviceId, onResult)
     }
 
     fun castCandidate(candidate: VideoCandidate, targetDeviceId: String? = null, onResult: ((Boolean, String?) -> Unit)? = null) {

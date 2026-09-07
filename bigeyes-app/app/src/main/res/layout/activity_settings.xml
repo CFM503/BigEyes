@@ -149,7 +149,7 @@
                         android:id="@+id/et_homepage_url"
                         android:layout_width="match_parent"
                         android:layout_height="42dp"
-                        android:hint="https://v.qq.com"
+                        android:hint="https://zip0.com/"
                         android:textSize="13sp"
                         android:inputType="textUri"
                         android:singleLine="true"
@@ -179,6 +179,109 @@
                             android:layout_weight="1"
                             android:text="恢复腾讯视频"
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                    </LinearLayout>
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Card: Playback & BigEyesTV Settings -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="剧集连播与 BigEyesTV 协同"
+                        android:textStyle="bold"
+                        android:textSize="16sp"
+                        android:textColor="@color/black" />
+
+                    <!-- Auto Play Next Switch -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="12dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="自动播放下一集"
+                                android:textStyle="bold"
+                                android:textColor="@color/black"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="单集播放完毕后自动倒计时 10 秒并连播下一集（可取消）"
+                                android:textColor="#666666"
+                                android:textSize="12sp"
+                                android:layout_marginTop="2dp" />
+                        </LinearLayout>
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/switch_auto_play_next"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#EEEEEE"
+                        android:layout_marginVertical="12dp" />
+
+                    <!-- BigEyesTV Status -->
+                    <TextView
+                        android:id="@+id/tv_bigeyes_tv_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="BigEyesTV 状态: 检测中..."
+                        android:textColor="#333333"
+                        android:textSize="13sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp">
+
+                        <Button
+                            android:id="@+id/btn_test_bigeyes_tv"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="启动 BigEyesTV"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_marginEnd="6dp" />
+
+                        <Button
+                            android:id="@+id/btn_clear_history"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="清空播放历史"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:textColor="#FF5252" />
                     </LinearLayout>
 
                 </LinearLayout>

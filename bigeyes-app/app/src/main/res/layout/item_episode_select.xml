@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/item_episode_container"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginVertical="3dp"
+    android:background="?attr/selectableItemBackground"
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tv_item_episode_number"
+            android:layout_width="32dp"
+            android:layout_height="wrap_content"
+            android:text="1"
+            android:textColor="@color/text_muted"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_item_episode_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="第 1 集"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:layout_marginHorizontal="8dp" />
+
+        <TextView
+            android:id="@+id/tv_item_playing_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="播放中"
+            android:textColor="@color/brand_primary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</FrameLayout>

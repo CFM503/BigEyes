@@ -10,5 +10,6 @@
     <color name="brand_primary">#FF2196F3</color>
     <color name="brand_secondary">#FF4CAF50</color>
     <color name="control_bar_bg">#EE1E1E1E</color>
+    <color name="dialog_background">#FF212121</color>
     <color name="text_muted">#FFAAAAAA</color>
 </resources>

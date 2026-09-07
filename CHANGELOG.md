@@ -1,5 +1,38 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.1.0] - 2026-09-07
+
+### 🎬 核心播放架构重构：连续剧集队列、自动下一集与大屏遥控深度适配
+* **全新剧集管理与播放队列架构 (Episode Queue Architecture)**：
+  * **结构化剧集模型**：引入 `Episode`、`PlaybackItem`、`PlaybackState`（Idle, Resolving, Playing, Paused, Buffering, CountdownNext, Completed, Error）、`PlaybackSession` 等标准领域实体，彻底告别脆弱的 "URL+1" / 正则递增猜集机制；
+  * **中央播放队列 (`EpisodeQueue`)**：负责全剧集真实列表状态管理，提供 `advance()`、`retreat()`、`jumpTo()`、`isFirst`、`isLast`、`hasNext` 等原子操作与状态观察者；
+  * **选集对话框 (`EpisodeSelectDialog`)**：支持用户在播放控制栏直观查看完整剧集列表、当前正在播放集数高亮标记与一键精准跳集；
+* **连续播放与倒计时确认系统**：
+  * **中央播放控制器 (`PlaybackController`)**：统一协调状态机转换、视频流解析重试、大屏/DLNA推送与历史记录归档；
+  * **10秒倒计时交互 (`NextEpisodeCountdownView`)**：当前集播放完成时触发 10 秒平滑倒计时卡片（显示即将播放集数与标题，支持[立即播放]与[取消]）；取消倒计时即终止自动连播；
+  * **自动连播开关**：在设置页提供“自动播放下一集”全局开关（默认开启），在全剧集最后一集播放完毕后安全停止并提示；
+  * **去重防抖防并发保护 (`PlaybackCompletionGuard`)**：毫秒级多重防护，彻底杜绝底层播放器或 DLNA 状态心跳上报多次 `onCompletion` 导致的重复跳集问题；
+* **大屏遥控器全键位映射与交互 (`RemoteKeyController`)**：
+  * 深度支持 Android TV 遥控器与 D-Pad 硬件按键：
+    * `MEDIA_NEXT`：无论何时直达下一集；
+    * `MEDIA_PREVIOUS`：回退上一集；
+    * `MEDIA_PLAY_PAUSE` / `MEDIA_PLAY` / `MEDIA_PAUSE`：播放与暂停切换；
+    * `DPAD_CENTER` / `ENTER`：播放/暂停或倒计时期间确认立即播放下一集；
+    * `DPAD_LEFT` / `DPAD_RIGHT`：快退 15 秒 / 快进 15 秒；
+    * `DPAD_UP`：唤出底部播放控制栏；
+    * `DPAD_DOWN`：唤出选集面板；
+    * `BACK`：优先取消倒计时或关闭控制弹窗，后退至浏览器；
+* **跨应用协同与 BigEyesTV 标准协议契约 (`PlaybackIntentContract` & `BigEyesTvConnector`)**：
+  * 制定跨应用 Intent 与广播契约，支持将当前剧集流地址、请求头（Referer/User-Agent/Cookie）、总集数、集数索引及连播参数以标准 Action (`com.bigeyes.tv.action.PLAY`) 发送至 BigEyesTV；
+  * 无强耦合设计：未安装 BigEyesTV 时无缝优雅回退至手机内置代理 DLNA 投屏与本地浏览器播放；
+* **播放历史与断点记忆 (`PlaybackHistoryManager`)**：
+  * 本地持久化保存剧集播放进度（包含 seriesId、episodeIndex、positionMs、durationMs、时间戳）；
+* **出厂默认主页调整**：
+  * 默认网址更新为 **`https://zip0.com/`**；
+  * 书签默认列表加入 ZIP0 影视快捷入口；设置页重置主页同步适配。
+
+---
+
 ## [v2.0.25] - 2026-08-23
 
 ### 🛠 发布修复与项目入口调整

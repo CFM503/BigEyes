@@ -58,6 +58,18 @@ import com.bigeyes.app.service.CastingForegroundService
 import com.bigeyes.app.ui.BookmarkDialog
 import com.bigeyes.app.ui.CandidateDialog
 import com.bigeyes.app.ui.DeviceSelectDialog
+import android.view.KeyEvent
+import com.bigeyes.app.model.playback.Episode
+import com.bigeyes.app.model.playback.PlaybackItem
+import com.bigeyes.app.model.playback.PlaybackState
+import com.bigeyes.app.playback.controller.PlaybackController
+import com.bigeyes.app.playback.remote.RemoteKeyController
+import com.bigeyes.app.playback.remote.RemoteUiCallbacks
+import com.bigeyes.app.playback.resolver.EpisodeExtractor
+import com.bigeyes.app.playback.resolver.VideoResolver
+import com.bigeyes.app.playback.tv.BigEyesTvConnector
+import com.bigeyes.app.ui.EpisodeSelectDialog
+import com.bigeyes.app.ui.NextEpisodeCountdownView
 import com.bigeyes.app.ui.PlaybackControlBar
 import com.bigeyes.app.ui.SettingsActivity
 import com.bigeyes.app.updater.UpdateManager
@@ -95,6 +107,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var containerControl: View
     private lateinit var fullscreenContainer: FrameLayout
     private lateinit var playbackControlBar: PlaybackControlBar
+
+    // Playback Architecture Components
+    private lateinit var videoResolver: VideoResolver
+    private lateinit var bigEyesTvConnector: BigEyesTvConnector
+    private lateinit var playbackController: PlaybackController
+    private lateinit var remoteKeyController: RemoteKeyController
+    private lateinit var containerCountdown: FrameLayout
+    private lateinit var nextEpisodeCountdownView: NextEpisodeCountdownView
+    private var activeEpisodeSelectDialog: EpisodeSelectDialog? = null
 
     private var isInlineVideoPlaying: Boolean = false
 
@@ -185,8 +206,170 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progress_bar)
         containerControl = findViewById(R.id.container_playback_control)
         fullscreenContainer = findViewById(R.id.fullscreen_custom_content)
+        containerCountdown = findViewById(R.id.container_next_countdown)
 
         playbackControlBar = PlaybackControlBar(containerControl, lifecycleScope)
+        videoResolver = VideoResolver(webViewProvider = { webView }, scope = lifecycleScope)
+        bigEyesTvConnector = BigEyesTvConnector(this)
+
+        playbackController = PlaybackController(
+            context = this,
+            videoResolver = videoResolver,
+            tvConnector = bigEyesTvConnector,
+            scope = lifecycleScope,
+            onCastPlaybackHandler = { item, onResult ->
+                castPlaybackItem(item, onResult)
+            },
+            onLocalPlaybackHandler = { item ->
+                playItemLocally(item)
+            }
+        )
+
+        nextEpisodeCountdownView = NextEpisodeCountdownView(containerCountdown, playbackController)
+
+        remoteKeyController = RemoteKeyController(
+            playbackController = playbackController,
+            uiCallbacks = object : RemoteUiCallbacks {
+                override fun showControlBar() {
+                    val s = playbackController.session.value
+                    playbackControlBar.show(s.currentEpisode?.displayTitle, s.targetDevice)
+                }
+
+                override fun hideControlBar() {
+                    playbackControlBar.hide()
+                }
+
+                override fun showEpisodeSelector() {
+                    showEpisodeSelectDialog()
+                }
+
+                override fun isControlBarVisible(): Boolean {
+                    return playbackControlBar.isVisible
+                }
+
+                override fun isEpisodeSelectorVisible(): Boolean {
+                    return activeEpisodeSelectDialog?.isShowing == true
+                }
+            }
+        )
+
+        setupPlaybackController()
+        setupPlaybackControlBarCallbacks()
+    }
+
+    private fun setupPlaybackController() {
+        lifecycleScope.launch {
+            playbackController.session.collect { session ->
+                when (val state = session.playbackState) {
+                    is PlaybackState.Playing -> {
+                        nextEpisodeCountdownView.hide()
+                        playbackControlBar.show(state.item.displayTitle, session.targetDevice)
+                        playbackControlBar.setPlayPauseState(true)
+                        playbackControlBar.updateQueueState(
+                            currentIndex = session.currentIndex,
+                            totalEpisodes = session.episodeList.size,
+                            hasPrev = playbackController.queue.hasPrevious,
+                            hasNxt = playbackController.queue.hasNext
+                        )
+                    }
+                    is PlaybackState.Paused -> {
+                        playbackControlBar.setPlayPauseState(false)
+                    }
+                    is PlaybackState.CountdownNext -> {
+                        nextEpisodeCountdownView.show(state.nextEpisode, state.remainingSeconds)
+                    }
+                    is PlaybackState.Completed -> {
+                        nextEpisodeCountdownView.hide()
+                        if (state.isSeriesFinished) {
+                            Toast.makeText(this@MainActivity, "已播放完全部剧集", Toast.LENGTH_SHORT).show()
+                            playbackControlBar.hide()
+                        }
+                    }
+                    is PlaybackState.Error -> {
+                        nextEpisodeCountdownView.hide()
+                        Toast.makeText(this@MainActivity, "播放出错: ${state.message}", Toast.LENGTH_SHORT).show()
+                    }
+                    is PlaybackState.Idle -> {
+                        nextEpisodeCountdownView.hide()
+                    }
+                    else -> {}
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            playbackController.countdownSeconds.collect { sec ->
+                if (playbackController.session.value.playbackState is PlaybackState.CountdownNext) {
+                    nextEpisodeCountdownView.updateSeconds(sec)
+                }
+            }
+        }
+    }
+
+    private fun setupPlaybackControlBarCallbacks() {
+        playbackControlBar.onPlayPauseClickListener = {
+            playbackController.togglePlayPause()
+        }
+        playbackControlBar.onStopClickListener = {
+            playbackController.stop()
+        }
+        playbackControlBar.onRewindClickListener = {
+            playbackController.seekRelative(-15)
+        }
+        playbackControlBar.onForwardClickListener = {
+            playbackController.seekRelative(15)
+        }
+        playbackControlBar.onSeekToListener = { posMs ->
+            playbackController.seekTo(posMs)
+        }
+        playbackControlBar.onPreviousEpisodeListener = {
+            playbackController.playPrevious()
+        }
+        playbackControlBar.onNextEpisodeListener = {
+            playbackController.playNext()
+        }
+        playbackControlBar.onSelectEpisodeListener = {
+            showEpisodeSelectDialog()
+        }
+    }
+
+    private fun showEpisodeSelectDialog() {
+        val episodes = playbackController.queue.items
+        if (episodes.isEmpty()) {
+            Toast.makeText(this, "当前页面未解析到多集列表", Toast.LENGTH_SHORT).show()
+            return
+        }
+        activeEpisodeSelectDialog = EpisodeSelectDialog(
+            context = this,
+            episodes = episodes,
+            currentIndex = playbackController.queue.currentIndex
+        ) { selectedIndex ->
+            playbackController.playEpisode(selectedIndex)
+        }
+        activeEpisodeSelectDialog?.show()
+    }
+
+    private fun castPlaybackItem(item: PlaybackItem, onResult: (Boolean, String?) -> Unit) {
+        val service = CastingForegroundService.instance
+        if (service == null) {
+            startCastingService()
+            onResult(false, "本地投屏服务正在初始化，请稍候重试")
+            return
+        }
+        service.castPlaybackItem(item, null, onResult)
+    }
+
+    private fun playItemLocally(item: PlaybackItem) {
+        if (!item.episode.pageUrl.isNullOrBlank() && item.episode.pageUrl != webView.url) {
+            webView.loadUrl(item.episode.pageUrl)
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (::remoteKeyController.isInitialized && remoteKeyController.dispatchKeyEvent(event)) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun updateKeepScreenOn() {
@@ -372,6 +555,13 @@ class MainActivity : AppCompatActivity() {
                     }
                     updateBookmarkIconState(currentUrl)
                     logMemoryUsage("page_load_finished")
+
+                    EpisodeExtractor.extractPlaylistFromPage(targetWebView) { playlist ->
+                        if (playlist != null && playlist.episodes.size >= 2) {
+                            Log.i(TAG, "Parsed playlist with ${playlist.episodes.size} episodes: ${playlist.seriesTitle}")
+                            playbackController.loadQueue(playlist.episodes, playlist.currentActiveIndex)
+                        }
+                    }
                 }
             },
             onPageUrlChanged = { url ->
@@ -654,9 +844,7 @@ class MainActivity : AppCompatActivity() {
             handleCastButtonClick()
         }
 
-        playbackControlBar.onNextEpisodeListener = {
-            triggerNextEpisodeAndCast()
-        }
+
     }
 
     private fun updateBookmarkIconState(url: String? = webView.url) {
@@ -842,11 +1030,40 @@ class MainActivity : AppCompatActivity() {
 
         Toast.makeText(this, "正在由手机本地代理推送至电视...", Toast.LENGTH_SHORT).show()
 
+        val headers = mutableMapOf<String, String>()
+        candidate.referer?.let { headers["Referer"] = it }
+        candidate.userAgent?.let { headers["User-Agent"] = it }
+        candidate.cookie?.let { headers["Cookie"] = it }
+
+        if (playbackController.queue.isEmpty) {
+            val ep = Episode(
+                id = "ep_${System.currentTimeMillis()}",
+                seriesId = "series_${System.currentTimeMillis()}",
+                seriesTitle = candidate.displayTitle,
+                episodeNumber = 1,
+                episodeTitle = candidate.displayTitle,
+                episodeIndex = 0,
+                pageUrl = candidate.referer ?: webView.url,
+                playUrl = candidate.url,
+                playHeaders = headers
+            )
+            playbackController.loadQueue(listOf(ep), 0)
+        } else {
+            playbackController.queue.updateCurrentPlayUrl(candidate.url, headers)
+        }
+
         service.castCandidate(candidate, targetDeviceId) { success, devName ->
             if (success) {
                 val targetName = devName ?: "电视"
                 Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
-                playbackControlBar.show(candidate.displayTitle, targetName)
+                val currentTitle = playbackController.queue.currentEpisode?.displayTitle ?: candidate.displayTitle
+                playbackControlBar.show(currentTitle, targetName)
+                playbackControlBar.updateQueueState(
+                    playbackController.queue.currentIndex,
+                    playbackController.queue.size,
+                    playbackController.queue.hasPrevious,
+                    playbackController.queue.hasNext
+                )
             } else {
                 val err = devName ?: "未找到可用的 DLNA 电视设备"
                 Toast.makeText(this@MainActivity, "投屏失败: $err", Toast.LENGTH_LONG).show()
@@ -854,48 +1071,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun triggerNextEpisodeAndCast() {
-        val nextEpisodeScript = """
-            (function() {
-                var buttons = document.querySelectorAll('button, a, span, div');
-                for (var i = 0; i < buttons.length; i++) {
-                    var el = buttons[i];
-                    var text = (el.innerText || el.textContent || '').trim();
-                    if (text === '下一集' || text === '下一话' || text === 'Next' || text === 'Next Episode') {
-                        el.click();
-                        return true;
-                    }
-                }
-                var currentActive = document.querySelector('.active, .current, [class*="active"], [class*="current"]');
-                if (currentActive) {
-                    var next = currentActive.nextElementSibling;
-                    if (next) {
-                        var target = next.querySelector('a, button') || next;
-                        target.click();
-                        return true;
-                    }
-                }
-                return false;
-            })();
-        """.trimIndent()
 
-        webView.evaluateJavascript(nextEpisodeScript) { result ->
-            val clicked = result?.toBoolean() ?: false
-            if (clicked) {
-                Toast.makeText(this, "正在切换下一集并嗅探...", Toast.LENGTH_SHORT).show()
-                CandidateManager.clear()
-                lifecycleScope.launch {
-                    delay(3000L)
-                    val candidates = CandidateManager.getCandidates()
-                    if (candidates.isNotEmpty()) {
-                        showCandidatesOrCast(candidates)
-                    }
-                }
-            } else {
-                Toast.makeText(this, "未找到下一集按钮，请在网页中手动点击", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
     private fun hideFullscreenCustomView() {
         try {
@@ -939,6 +1115,21 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
+                if (::playbackController.isInitialized && playbackController.session.value.playbackState is PlaybackState.CountdownNext) {
+                    playbackController.cancelNextCountdown()
+                    return
+                }
+
+                if (activeEpisodeSelectDialog?.isShowing == true) {
+                    activeEpisodeSelectDialog?.dismiss()
+                    return
+                }
+
+                if (playbackControlBar.isVisible) {
+                    playbackControlBar.hide()
+                    return
+                }
+
                 if (webView.canGoBack()) {
                     webView.goBack()
                     return
@@ -960,7 +1151,9 @@ class MainActivity : AppCompatActivity() {
         }
         CastingForegroundService.instance?.onAutoNextEpisodeListener = {
             runOnUiThread {
-                triggerNextEpisodeAndCast()
+                if (::playbackController.isInitialized) {
+                    playbackController.onPlaybackCompleted()
+                }
             }
         }
     }
@@ -993,6 +1186,9 @@ class MainActivity : AppCompatActivity() {
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
         fallbackDlnaManager?.release()
+        if (::playbackController.isInitialized) {
+            playbackController.release()
+        }
         try {
             CookieManager.getInstance().flush()
             webView.removeJavascriptInterface(BlobDownloadBridge.JAVASCRIPT_NAME)

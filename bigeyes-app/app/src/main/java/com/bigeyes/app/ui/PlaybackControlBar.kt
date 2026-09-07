@@ -14,18 +14,28 @@ class PlaybackControlBar(
     private val scope: CoroutineScope
 ) {
     private val tvTitle: TextView = container.findViewById(R.id.tv_playing_title)
+    private val tvQueueIndicator: TextView? = container.findViewById(R.id.tv_queue_indicator)
     private val tvDevice: TextView = container.findViewById(R.id.tv_target_device)
     private val btnClose: ImageButton = container.findViewById(R.id.btn_close_control)
     private val tvCurrentTime: TextView = container.findViewById(R.id.tv_current_time)
     private val tvTotalTime: TextView = container.findViewById(R.id.tv_total_time)
     private val seekBar: SeekBar = container.findViewById(R.id.seekbar_progress)
+    private val btnPreviousEpisode: Button? = container.findViewById(R.id.btn_previous_episode)
     private val btnPlayPause: Button = container.findViewById(R.id.btn_play_pause)
     private val btnRewind: Button = container.findViewById(R.id.btn_rewind)
     private val btnForward: Button = container.findViewById(R.id.btn_forward)
     private val btnNextEpisode: Button? = container.findViewById(R.id.btn_next_episode)
+    private val btnSelectEpisode: Button? = container.findViewById(R.id.btn_select_episode)
     private val btnStop: Button = container.findViewById(R.id.btn_stop)
 
+    var onPreviousEpisodeListener: (() -> Unit)? = null
     var onNextEpisodeListener: (() -> Unit)? = null
+    var onSelectEpisodeListener: (() -> Unit)? = null
+    var onPlayPauseClickListener: (() -> Unit)? = null
+    var onRewindClickListener: (() -> Unit)? = null
+    var onForwardClickListener: (() -> Unit)? = null
+    var onStopClickListener: (() -> Unit)? = null
+    var onSeekToListener: ((Long) -> Unit)? = null
 
     private var pollJob: Job? = null
     private var isUserSeeking = false
@@ -38,28 +48,44 @@ class PlaybackControlBar(
     }
 
     private fun setupListeners() {
+        btnPreviousEpisode?.setOnClickListener {
+            onPreviousEpisodeListener?.invoke()
+        }
+
         btnNextEpisode?.setOnClickListener {
             onNextEpisodeListener?.invoke()
         }
 
-        btnPlayPause.setOnClickListener {
-            val service = CastingForegroundService.instance ?: return@setOnClickListener
-            val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
-            val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
+        btnSelectEpisode?.setOnClickListener {
+            onSelectEpisodeListener?.invoke()
+        }
 
-            scope.launch {
-                if (isPlaying) {
-                    service.dlnaManager.controller.pause(ctrlUrl)
-                } else {
-                    service.dlnaManager.controller.play(ctrlUrl)
+        btnPlayPause.setOnClickListener {
+            if (onPlayPauseClickListener != null) {
+                onPlayPauseClickListener?.invoke()
+            } else {
+                val service = CastingForegroundService.instance ?: return@setOnClickListener
+                val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
+                val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
+
+                scope.launch {
+                    if (isPlaying) {
+                        service.dlnaManager.controller.pause(ctrlUrl)
+                    } else {
+                        service.dlnaManager.controller.play(ctrlUrl)
+                    }
+                    fetchStatus()
                 }
-                fetchStatus()
             }
         }
 
         btnStop.setOnClickListener {
-            val service = CastingForegroundService.instance
-            service?.stopCasting()
+            if (onStopClickListener != null) {
+                onStopClickListener?.invoke()
+            } else {
+                val service = CastingForegroundService.instance
+                service?.stopCasting()
+            }
             hide()
         }
 
@@ -68,30 +94,38 @@ class PlaybackControlBar(
         }
 
         btnRewind.setOnClickListener {
-            val service = CastingForegroundService.instance ?: return@setOnClickListener
-            val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
-            val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
+            if (onRewindClickListener != null) {
+                onRewindClickListener?.invoke()
+            } else {
+                val service = CastingForegroundService.instance ?: return@setOnClickListener
+                val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
+                val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
 
-            scope.launch {
-                val targetSecs = (currentPosSecs - 15).coerceAtLeast(0)
-                service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
-                fetchStatus()
+                scope.launch {
+                    val targetSecs = (currentPosSecs - 15).coerceAtLeast(0)
+                    service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
+                    fetchStatus()
+                }
             }
         }
 
         btnForward.setOnClickListener {
-            val service = CastingForegroundService.instance ?: return@setOnClickListener
-            val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
-            val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
+            if (onForwardClickListener != null) {
+                onForwardClickListener?.invoke()
+            } else {
+                val service = CastingForegroundService.instance ?: return@setOnClickListener
+                val target = service.dlnaManager.getSelectedDevice() ?: return@setOnClickListener
+                val ctrlUrl = target.avTransportControlUrl ?: return@setOnClickListener
 
-            scope.launch {
-                val targetSecs = if (currentTotalSecs > 0) {
-                    (currentPosSecs + 15).coerceAtMost(currentTotalSecs)
-                } else {
-                    currentPosSecs + 15
+                scope.launch {
+                    val targetSecs = if (currentTotalSecs > 0) {
+                        (currentPosSecs + 15).coerceAtMost(currentTotalSecs)
+                    } else {
+                        currentPosSecs + 15
+                    }
+                    service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
+                    fetchStatus()
                 }
-                service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
-                fetchStatus()
             }
         }
 
@@ -112,11 +146,16 @@ class PlaybackControlBar(
                 val progress = sb?.progress ?: 0
                 if (currentTotalSecs > 0) {
                     val targetSecs = (progress.toFloat() / 1000f * currentTotalSecs).toInt()
-                    val service = CastingForegroundService.instance
-                    val ctrlUrl = service?.dlnaManager?.getSelectedDevice()?.avTransportControlUrl
-                    if (ctrlUrl != null) {
-                        scope.launch {
-                            service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
+                    val targetMs = targetSecs * 1000L
+                    if (onSeekToListener != null) {
+                        onSeekToListener?.invoke(targetMs)
+                    } else {
+                        val service = CastingForegroundService.instance
+                        val ctrlUrl = service?.dlnaManager?.getSelectedDevice()?.avTransportControlUrl
+                        if (ctrlUrl != null) {
+                            scope.launch {
+                                service.dlnaManager.controller.seek(ctrlUrl, formatSeconds(targetSecs))
+                            }
                         }
                     }
                 }
@@ -124,10 +163,54 @@ class PlaybackControlBar(
         })
     }
 
-    fun show(title: String?, deviceName: String?) {
+    fun updateQueueState(currentIndex: Int, totalEpisodes: Int, hasPrev: Boolean, hasNxt: Boolean) {
+        if (totalEpisodes > 1) {
+            tvQueueIndicator?.visibility = View.VISIBLE
+            tvQueueIndicator?.text = "第 ${currentIndex + 1} 集 / 共 ${totalEpisodes} 集"
+            btnPreviousEpisode?.isEnabled = hasPrev
+            btnPreviousEpisode?.alpha = if (hasPrev) 1.0f else 0.4f
+            btnNextEpisode?.isEnabled = hasNxt
+            btnNextEpisode?.alpha = if (hasNxt) 1.0f else 0.4f
+            btnSelectEpisode?.visibility = View.VISIBLE
+        } else {
+            tvQueueIndicator?.visibility = View.GONE
+            btnPreviousEpisode?.isEnabled = false
+            btnPreviousEpisode?.alpha = 0.4f
+            btnNextEpisode?.isEnabled = false
+            btnNextEpisode?.alpha = 0.4f
+            btnSelectEpisode?.visibility = View.GONE
+        }
+    }
+
+    fun setPlayPauseState(playing: Boolean) {
+        isPlaying = playing
+        btnPlayPause.text = if (playing) "暂停" else "播放"
+    }
+
+    fun setProgress(posMs: Long, durMs: Long) {
+        if (isUserSeeking) return
+        currentPosSecs = (posMs / 1000).toInt()
+        currentTotalSecs = (durMs / 1000).toInt()
+        tvCurrentTime.text = formatSeconds(currentPosSecs)
+        tvTotalTime.text = formatSeconds(currentTotalSecs)
+        if (currentTotalSecs > 0) {
+            val prog = ((currentPosSecs.toFloat() / currentTotalSecs.toFloat()) * 1000).toInt()
+            seekBar.progress = prog.coerceIn(0, 1000)
+        }
+    }
+
+    fun show(title: String? = null, deviceName: String? = null) {
         container.visibility = View.VISIBLE
-        tvTitle.text = title ?: "正在电视投屏播放..."
-        tvDevice.text = deviceName ?: "DLNA 电视"
+        if (title != null) {
+            tvTitle.text = title
+        } else if (tvTitle.text.isNullOrEmpty()) {
+            tvTitle.text = "正在播放..."
+        }
+        if (deviceName != null) {
+            tvDevice.text = deviceName
+        } else if (tvDevice.text.isNullOrEmpty()) {
+            tvDevice.text = "DLNA 电视"
+        }
         startPolling()
     }
 
@@ -135,6 +218,9 @@ class PlaybackControlBar(
         stopPolling()
         container.visibility = View.GONE
     }
+
+    val isVisible: Boolean
+        get() = container.visibility == View.VISIBLE
 
     private fun startPolling() {
         stopPolling()

@@ -493,8 +493,8 @@ object VideoSnifferHelper {
     }
 
     /**
-     * Attempts to find and trigger the next episode button/link on the current web page,
-     * or computes and navigates to the next episode URL.
+     * Attempts to find and trigger the next episode button/link on the current web page via DOM.
+     * Note: EpisodeQueue and VideoResolver should be preferred for structured queue playback.
      */
     fun triggerNextEpisode(webView: WebView, callback: ((Boolean) -> Unit)? = null) {
         val script = """
@@ -528,31 +528,6 @@ object VideoSnifferHelper {
                             var clickTarget = parentNext.querySelector('a, button') || parentNext;
                             clickTarget.click();
                             return JSON.stringify({ success: true, method: 'parent_sibling_click' });
-                        }
-                    }
-                }
-
-                // 3. Try URL pattern replacement (e.g. /play/123-1-1.html -> /play/123-1-2.html or ?ep=1 -> ?ep=2)
-                var href = window.location.href;
-                var patterns = [
-                    /([-_/])(\d+)(\.html?)/i,
-                    /([-_/])(\d+)(\/|$)/i,
-                    /([?&](?:ep|episode|p|index|num)=)(\d+)/i
-                ];
-
-                for (var p = 0; p < patterns.length; p++) {
-                    var match = href.match(patterns[p]);
-                    if (match) {
-                        var prefix = match[1];
-                        var num = parseInt(match[2], 10);
-                        var suffix = match[3] || '';
-                        if (!isNaN(num)) {
-                            var nextNum = num + 1;
-                            var nextUrl = href.replace(patterns[p], prefix + nextNum + suffix);
-                            if (nextUrl !== href) {
-                                window.location.href = nextUrl;
-                                return JSON.stringify({ success: true, method: 'url_increment', url: nextUrl });
-                            }
                         }
                     }
                 }

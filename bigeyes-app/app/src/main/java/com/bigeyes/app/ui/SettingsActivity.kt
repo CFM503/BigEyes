@@ -64,6 +64,11 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var tvDebugLogs: TextView
     private lateinit var btnClearLogs: Button
 
+    private lateinit var switchAutoPlayNext: com.google.android.material.switchmaterial.SwitchMaterial
+    private lateinit var tvBigEyesTvStatus: TextView
+    private lateinit var btnTestBigEyesTv: Button
+    private lateinit var btnClearHistory: Button
+
     private var currentVlcUrl: String = ""
     private var currentBaseUrl: String = ""
     private var latestCandidate: VideoCandidate? = null
@@ -75,6 +80,7 @@ class SettingsActivity : AppCompatActivity() {
 
         initViews()
         loadVersionInfo()
+        loadPlaybackAndTvSettings()
         loadHomepageInfo()
         loadServerAndVlcInfo()
         loadLatestCandidateInfo()
@@ -114,6 +120,44 @@ class SettingsActivity : AppCompatActivity() {
         tvDebugLogs = findViewById(R.id.tv_debug_logs)
         btnClearLogs = findViewById(R.id.btn_clear_logs)
 
+        switchAutoPlayNext = findViewById(R.id.switch_auto_play_next)
+        tvBigEyesTvStatus = findViewById(R.id.tv_bigeyes_tv_status)
+        btnTestBigEyesTv = findViewById(R.id.btn_test_bigeyes_tv)
+        btnClearHistory = findViewById(R.id.btn_clear_history)
+
+        switchAutoPlayNext.setOnCheckedChangeListener { _, isChecked ->
+            AppPreferences.setAutoPlayNext(this, isChecked)
+            val msg = if (isChecked) "已开启自动连播下一集 (单集播完倒计时 10 秒切换)" else "已关闭自动连播下一集"
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        btnTestBigEyesTv.setOnClickListener {
+            val tvConnector = com.bigeyes.app.playback.tv.BigEyesTvConnector(this)
+            if (tvConnector.isTvAppInstalled()) {
+                val launchIntent = packageManager.getLaunchIntentForPackage(com.bigeyes.app.playback.contract.PlaybackIntentContract.PACKAGE_BIGEYES_TV)
+                if (launchIntent != null) {
+                    startActivity(launchIntent)
+                } else {
+                    Toast.makeText(this, "无法启动 BigEyesTV", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this, "检测到未安装 BigEyesTV，BigEyes 原生播放模式正常生效中", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        btnClearHistory.setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("清空播放历史")
+                .setMessage("确定清空所有剧集的观看进度与历史记录吗？")
+                .setPositiveButton("清空") { _, _ ->
+                    com.bigeyes.app.playback.history.PlaybackHistoryManager.clearHistory(this)
+                    loadPlaybackAndTvSettings()
+                    Toast.makeText(this, "播放历史已清空", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        }
+
         btnCheckUpdate.setOnClickListener {
             UpdateManager.checkUpdate(this, silent = false)
         }
@@ -137,7 +181,7 @@ class SettingsActivity : AppCompatActivity() {
         btnResetHomepage.setOnClickListener {
             AppPreferences.resetHomepageUrl(this)
             etHomepageUrl.setText(AppPreferences.getHomepageUrl(this))
-            Toast.makeText(this, "已恢复出厂默认主页 (腾讯视频: https://v.qq.com)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "已恢复出厂默认主页 (${AppPreferences.DEFAULT_HOMEPAGE_URL})", Toast.LENGTH_SHORT).show()
         }
 
         btnManageBookmarksInSettings.setOnClickListener {
@@ -201,6 +245,24 @@ class SettingsActivity : AppCompatActivity() {
             loadLatestCandidateInfo()
             displayLogs()
         }
+    }
+
+    private fun loadPlaybackAndTvSettings() {
+        switchAutoPlayNext.isChecked = AppPreferences.isAutoPlayNext(this)
+
+        val tvConnector = com.bigeyes.app.playback.tv.BigEyesTvConnector(this)
+        val isInstalled = tvConnector.isTvAppInstalled()
+        if (isInstalled) {
+            tvBigEyesTvStatus.text = "BigEyesTV 播放端: 已就绪 (可无缝大屏连播)"
+            btnTestBigEyesTv.isEnabled = true
+        } else {
+            tvBigEyesTvStatus.text = "BigEyesTV 播放端: 未安装 (BigEyes 原生播放与 DLNA 投屏全功能正常运作)"
+            btnTestBigEyesTv.isEnabled = false
+        }
+
+        val historyCount = com.bigeyes.app.playback.history.PlaybackHistoryManager.getAllHistory(this).size
+        btnClearHistory.text = "清空播放历史 ($historyCount)"
+        btnClearHistory.isEnabled = historyCount > 0
     }
 
     private fun loadVersionInfo() {

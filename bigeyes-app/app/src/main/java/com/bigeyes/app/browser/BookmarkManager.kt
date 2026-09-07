@@ -127,6 +127,7 @@ object BookmarkManager {
 
     private fun getDefaultBookmarks(): List<Bookmark> {
         return listOf(
+            Bookmark(title = "ZIP0 影视", url = "https://zip0.com/"),
             Bookmark(title = "腾讯视频", url = "https://v.qq.com"),
             Bookmark(title = "爱奇艺", url = "https://www.iqiyi.com"),
             Bookmark(title = "优酷视频", url = "https://www.youku.com"),
