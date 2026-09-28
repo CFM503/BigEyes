@@ -8,6 +8,7 @@ object AppPreferences {
     private const val PREFS_NAME = "bigeyes_browser_prefs"
     private const val KEY_HOMEPAGE_URL = "default_homepage_url"
     private const val KEY_AUTO_PLAY_NEXT = "auto_play_next"
+    private const val KEY_PREFER_BIGEYES_TV = "prefer_bigeyes_tv"
 
     // Default factory homepage
     const val DEFAULT_HOMEPAGE_URL = "https://zip0.com/"
@@ -22,6 +23,18 @@ object AppPreferences {
 
     fun setAutoPlayNext(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_AUTO_PLAY_NEXT, enabled).apply()
+    }
+
+    /**
+     * Prefer direct BigEyesTV casting (Intent based, with header passthrough and status feedback)
+     * over the DLNA proxy cast whenever a compatible BigEyesTV build is installed.
+     */
+    fun isPreferBigEyesTv(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_PREFER_BIGEYES_TV, true)
+    }
+
+    fun setPreferBigEyesTv(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_PREFER_BIGEYES_TV, enabled).apply()
     }
 
     fun getHomepageUrl(context: Context): String {

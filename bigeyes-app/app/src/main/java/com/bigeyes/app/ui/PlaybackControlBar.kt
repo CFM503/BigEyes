@@ -43,6 +43,9 @@ class PlaybackControlBar(
     private var currentPosSecs = 0
     private var isPlaying = true
 
+    /** 直连 BigEyesTV 投屏时进度由电视状态广播推送，跳过 DLNA 轮询。 */
+    private var remoteProgressSource = false
+
     init {
         setupListeners()
     }
@@ -182,6 +185,11 @@ class PlaybackControlBar(
         }
     }
 
+    /** true 时进度/状态由电视广播驱动，控制条不再轮询 DLNA AVTransport。 */
+    fun setRemoteProgressSource(enabled: Boolean) {
+        remoteProgressSource = enabled
+    }
+
     fun setPlayPauseState(playing: Boolean) {
         isPlaying = playing
         btnPlayPause.text = if (playing) "暂停" else "播放"
@@ -238,6 +246,7 @@ class PlaybackControlBar(
     }
 
     private suspend fun fetchStatus() {
+        if (remoteProgressSource) return
         val service = CastingForegroundService.instance ?: return
         val target = service.dlnaManager.getSelectedDevice() ?: return
         val ctrlUrl = target.avTransportControlUrl ?: return

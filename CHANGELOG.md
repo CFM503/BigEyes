@@ -1,5 +1,27 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.1.1] - 2026-09-28
+
+### 📺 BigEyesTV 直连投屏全链路补全 (Direct Cast)
+* **投屏按钮直连 BigEyesTV 成为默认路径**：
+  * 安装了兼容版本（`versionCode >= 16`）的 BigEyesTV 时，投屏直接通过 Intent 启动电视端播放，跳过手机本地代理与局域网 DLNA 扫描；启动失败或未安装时无缝回退原 DLNA 扫描/手动输入设备流程；
+  * `showDeviceSelectOrCast()` 优先尝试直连，`executeCast()` 内部再兜底一次，双层保护；
+  * 新增设置开关「优先直连 BigEyesTV 投屏」（默认开启），可随时切回纯 DLNA；设置页状态文案区分已就绪/版本过旧/未安装三种情形。
+* **防盗链请求头 (Referer / User-Agent / Cookie) 透传**：
+  * `startTvPlayback()` 将请求头写入 `EXTRA_HEADER_*` extras，电视端解析后注入 media3 数据源工厂，受限站点可在电视端直接起播。
+* **电视状态回传与进度镜像**：
+  * 接收电视端 `ACTION_STATUS_UPDATE` 广播，`MainActivity` 把真实大屏进度/播放状态同步到控制条（`PlaybackControlBar.setRemoteProgressSource()` 关闭 DLNA 轮询，改由广播驱动 `setProgress`）；
+  * 播放/暂停/出错状态镜像，电视端 `STOPPED / ERROR` 相应重置或提示；`tvOwnsQueue` 模式下电视自动切集会被镜像回手机队列（索引按队列位置归一化）。
+* **队列下放策略**：仅当整条队列全部具备新鲜 `playUrl`（10 分钟内）才把完整队列交给电视本地连播（`ACTION_PLAY_QUEUE`），否则只发单集、由手机驱动下一集，避免电视端拿到过期地址。
+
+### 🛠 协议契约与质量保障
+* **`PlaybackIntentContract` 扩展**：新增 `ACTION_PLAY_QUEUE`、`EXTRA_EPISODE_QUEUE`、`EXTRA_SEEK_POSITION`（与 `EXTRA_POSITION_MS` 双键同发，兼容旧版电视端）、`MIN_TV_VERSION_CODE = 16`、`buildQueueJson()/episodeToJson()`（字段与电视端 `Episode` JSON 完全对齐）；
+* **`BigEyesTvConnector` 重写**：`getTvVersionCode()` / `isDirectCastSupported()` 版本门槛检测、队列下放、双 seek 键、状态接收器注册；
+* 契约单测扩展至 7 例（键名常量、队列 JSON 字段与顺序、请求头序列化、可选字段省略），单测 41 例全绿，`assembleDebug` 构建通过；
+* 版本号提升至 `versionCode 29 / versionName 2.1.1`。
+
+---
+
 ## [v2.1.0] - 2026-09-07
 
 ### 🎬 核心播放架构重构：连续剧集队列、自动下一集与大屏遥控深度适配

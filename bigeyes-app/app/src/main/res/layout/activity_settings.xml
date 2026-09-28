@@ -244,6 +244,49 @@
                             android:checked="true" />
                     </LinearLayout>
 
+                    <!-- Prefer BigEyesTV Direct Cast Switch -->
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#EEEEEE"
+                        android:layout_marginVertical="12dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="优先直连 BigEyesTV 投屏"
+                                android:textStyle="bold"
+                                android:textColor="@color/black"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="安装了兼容版本 BigEyesTV 时，投屏直接启动电视端播放（支持防盗链请求头透传与播放状态回传）；关闭则始终走本地代理 DLNA 推送"
+                                android:textColor="#666666"
+                                android:textSize="12sp"
+                                android:layout_marginTop="2dp" />
+                        </LinearLayout>
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/switch_prefer_bigeyes_tv"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true" />
+                    </LinearLayout>
+
                     <View
                         android:layout_width="match_parent"
                         android:layout_height="1dp"

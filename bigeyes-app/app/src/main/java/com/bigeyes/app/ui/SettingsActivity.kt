@@ -65,6 +65,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var btnClearLogs: Button
 
     private lateinit var switchAutoPlayNext: com.google.android.material.switchmaterial.SwitchMaterial
+    private lateinit var switchPreferBigEyesTv: com.google.android.material.switchmaterial.SwitchMaterial
     private lateinit var tvBigEyesTvStatus: TextView
     private lateinit var btnTestBigEyesTv: Button
     private lateinit var btnClearHistory: Button
@@ -121,6 +122,7 @@ class SettingsActivity : AppCompatActivity() {
         btnClearLogs = findViewById(R.id.btn_clear_logs)
 
         switchAutoPlayNext = findViewById(R.id.switch_auto_play_next)
+        switchPreferBigEyesTv = findViewById(R.id.switch_prefer_bigeyes_tv)
         tvBigEyesTvStatus = findViewById(R.id.tv_bigeyes_tv_status)
         btnTestBigEyesTv = findViewById(R.id.btn_test_bigeyes_tv)
         btnClearHistory = findViewById(R.id.btn_clear_history)
@@ -129,6 +131,17 @@ class SettingsActivity : AppCompatActivity() {
             AppPreferences.setAutoPlayNext(this, isChecked)
             val msg = if (isChecked) "已开启自动连播下一集 (单集播完倒计时 10 秒切换)" else "已关闭自动连播下一集"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        switchPreferBigEyesTv.setOnCheckedChangeListener { _, isChecked ->
+            AppPreferences.setPreferBigEyesTv(this, isChecked)
+            val msg = if (isChecked) {
+                "已开启直连 BigEyesTV 投屏 (安装兼容版本时优先直连，失败自动回退 DLNA)"
+            } else {
+                "已关闭直连投屏，投屏将始终走本地代理 DLNA 推送"
+            }
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            loadPlaybackAndTvSettings()
         }
 
         btnTestBigEyesTv.setOnClickListener {
@@ -249,15 +262,28 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun loadPlaybackAndTvSettings() {
         switchAutoPlayNext.isChecked = AppPreferences.isAutoPlayNext(this)
+        switchPreferBigEyesTv.isChecked = AppPreferences.isPreferBigEyesTv(this)
 
         val tvConnector = com.bigeyes.app.playback.tv.BigEyesTvConnector(this)
+        val directSupported = tvConnector.isDirectCastSupported()
         val isInstalled = tvConnector.isTvAppInstalled()
-        if (isInstalled) {
-            tvBigEyesTvStatus.text = "BigEyesTV 播放端: 已就绪 (可无缝大屏连播)"
-            btnTestBigEyesTv.isEnabled = true
-        } else {
-            tvBigEyesTvStatus.text = "BigEyesTV 播放端: 未安装 (BigEyes 原生播放与 DLNA 投屏全功能正常运作)"
-            btnTestBigEyesTv.isEnabled = false
+        when {
+            directSupported -> {
+                tvBigEyesTvStatus.text = if (switchPreferBigEyesTv.isChecked) {
+                    "BigEyesTV 播放端: 已就绪，直连投屏已启用 (含防盗链请求头透传与播放状态回传)"
+                } else {
+                    "BigEyesTV 播放端: 已就绪，当前使用 DLNA 投屏 (可开启上方开关切换为直连)"
+                }
+                btnTestBigEyesTv.isEnabled = true
+            }
+            isInstalled -> {
+                tvBigEyesTvStatus.text = "BigEyesTV 播放端: 版本过旧，请升级 BigEyesTV 后再启用直连投屏 (当前回退 DLNA)"
+                btnTestBigEyesTv.isEnabled = true
+            }
+            else -> {
+                tvBigEyesTvStatus.text = "BigEyesTV 播放端: 未安装 (BigEyes 原生播放与 DLNA 投屏全功能正常运作)"
+                btnTestBigEyesTv.isEnabled = false
+            }
         }
 
         val historyCount = com.bigeyes.app.playback.history.PlaybackHistoryManager.getAllHistory(this).size

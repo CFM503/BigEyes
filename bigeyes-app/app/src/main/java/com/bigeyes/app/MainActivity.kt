@@ -260,6 +260,8 @@ class MainActivity : AppCompatActivity() {
     private fun setupPlaybackController() {
         lifecycleScope.launch {
             playbackController.session.collect { session ->
+                val tvCasting = playbackController.isCastingToBigEyesTv
+                playbackControlBar.setRemoteProgressSource(tvCasting)
                 when (val state = session.playbackState) {
                     is PlaybackState.Playing -> {
                         nextEpisodeCountdownView.hide()
@@ -271,9 +273,15 @@ class MainActivity : AppCompatActivity() {
                             hasPrev = playbackController.queue.hasPrevious,
                             hasNxt = playbackController.queue.hasNext
                         )
+                        if (tvCasting) {
+                            playbackControlBar.setProgress(session.positionMs, session.durationMs)
+                        }
                     }
                     is PlaybackState.Paused -> {
                         playbackControlBar.setPlayPauseState(false)
+                        if (tvCasting) {
+                            playbackControlBar.setProgress(session.positionMs, session.durationMs)
+                        }
                     }
                     is PlaybackState.CountdownNext -> {
                         nextEpisodeCountdownView.show(state.nextEpisode, state.remainingSeconds)
@@ -961,6 +969,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showDeviceSelectOrCast(candidate: VideoCandidate) {
+        // 优先直连 BigEyesTV：无需扫描局域网 DLNA；失败或未启用时回退到 DLNA 设备选择
+        if (playbackController.shouldCastToBigEyesTv()) {
+            val headers = prepareQueueForCandidate(candidate)
+            if (executeDirectTvCast(candidate, headers)) {
+                return
+            }
+            Log.w(TAG, "Direct BigEyesTV cast unavailable, falling back to DLNA scan")
+        }
+
         val service = CastingForegroundService.instance
         val dlnaManager = service?.dlnaManager ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also {
             fallbackDlnaManager = it
@@ -1028,8 +1045,34 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        prepareQueueForCandidate(candidate)
+
         Toast.makeText(this, "正在由手机本地代理推送至电视...", Toast.LENGTH_SHORT).show()
 
+        service.castCandidate(candidate, targetDeviceId) { success, devName ->
+            if (success) {
+                val targetName = devName ?: "电视"
+                Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
+                val currentTitle = playbackController.queue.currentEpisode?.displayTitle ?: candidate.displayTitle
+                playbackControlBar.show(currentTitle, targetName)
+                playbackControlBar.updateQueueState(
+                    playbackController.queue.currentIndex,
+                    playbackController.queue.size,
+                    playbackController.queue.hasPrevious,
+                    playbackController.queue.hasNext
+                )
+            } else {
+                val err = devName ?: "未找到可用的 DLNA 电视设备"
+                Toast.makeText(this@MainActivity, "投屏失败: $err", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /**
+     * 把嗅探到的候选写入播放队列（新建单集队列或刷新当前集的播放地址与请求头），
+     * 返回本次候选的防盗链请求头。
+     */
+    private fun prepareQueueForCandidate(candidate: VideoCandidate): Map<String, String> {
         val headers = mutableMapOf<String, String>()
         candidate.referer?.let { headers["Referer"] = it }
         candidate.userAgent?.let { headers["User-Agent"] = it }
@@ -1051,24 +1094,47 @@ class MainActivity : AppCompatActivity() {
         } else {
             playbackController.queue.updateCurrentPlayUrl(candidate.url, headers)
         }
+        return headers
+    }
 
-        service.castCandidate(candidate, targetDeviceId) { success, devName ->
-            if (success) {
-                val targetName = devName ?: "电视"
-                Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
-                val currentTitle = playbackController.queue.currentEpisode?.displayTitle ?: candidate.displayTitle
-                playbackControlBar.show(currentTitle, targetName)
-                playbackControlBar.updateQueueState(
-                    playbackController.queue.currentIndex,
-                    playbackController.queue.size,
-                    playbackController.queue.hasPrevious,
-                    playbackController.queue.hasNext
-                )
-            } else {
-                val err = devName ?: "未找到可用的 DLNA 电视设备"
-                Toast.makeText(this@MainActivity, "投屏失败: $err", Toast.LENGTH_LONG).show()
-            }
+    /**
+     * 直连 BigEyesTV 投屏：跳过手机本地代理，把已解析地址与防盗链 Header 直接交给电视端。
+     * 成功返回 true；未启用直连或启动失败返回 false，调用方回退到 DLNA。
+     */
+    private fun executeDirectTvCast(candidate: VideoCandidate, headers: Map<String, String>): Boolean {
+        if (!playbackController.shouldCastToBigEyesTv()) return false
+
+        val episode = playbackController.queue.currentEpisode ?: return false
+        val item = PlaybackItem(
+            episode = episode.copy(episodeIndex = playbackController.queue.currentIndex),
+            playUrl = candidate.url,
+            headers = headers,
+            totalCount = playbackController.queue.size.coerceAtLeast(1)
+        )
+
+        Toast.makeText(this, "正在直连 BigEyesTV 投屏...", Toast.LENGTH_SHORT).show()
+        val started = bigEyesTvConnector.startTvPlayback(
+            item = item,
+            autoPlayNext = playbackController.session.value.autoPlayNext,
+            startPositionMs = 0L,
+            queue = null
+        )
+        if (!started) {
+            Log.w(TAG, "Direct BigEyesTV cast failed, falling back to DLNA")
+            return false
         }
+
+        playbackController.onTvDirectCastStarted(item)
+        Toast.makeText(this, "已直连投屏至 BigEyesTV", Toast.LENGTH_LONG).show()
+        playbackControlBar.setRemoteProgressSource(true)
+        playbackControlBar.show(item.displayTitle, "BigEyesTV")
+        playbackControlBar.updateQueueState(
+            playbackController.queue.currentIndex,
+            playbackController.queue.size,
+            playbackController.queue.hasPrevious,
+            playbackController.queue.hasNext
+        )
+        return true
     }
 
 

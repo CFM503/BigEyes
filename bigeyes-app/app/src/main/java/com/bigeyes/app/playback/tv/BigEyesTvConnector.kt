@@ -8,9 +8,18 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import com.bigeyes.app.model.playback.Episode
 import com.bigeyes.app.model.playback.PlaybackItem
 import com.bigeyes.app.playback.contract.PlaybackIntentContract
 
+/**
+ * Bridge between the BigEyes phone app and the BigEyesTV receiver app.
+ *
+ * Play requests are delivered with startActivity (so the TV player UI comes to the foreground),
+ * control commands with package-targeted broadcasts (handled by BigEyesTV's
+ * [com.bigeyes.tv.playback.PlaybackCommandReceiver]) and the TV reports playback status back
+ * through [PlaybackIntentContract.ACTION_STATUS_UPDATE].
+ */
 class BigEyesTvConnector(private val context: Context) {
 
     companion object {
@@ -22,9 +31,10 @@ class BigEyesTvConnector(private val context: Context) {
     private var statusReceiver: BroadcastReceiver? = null
     private var isReceiverRegistered = false
 
-    fun isTvAppInstalled(): Boolean {
+    /** Version code of the installed BigEyesTV package, or 0 when not installed. */
+    fun getTvVersionCode(): Long {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 context.packageManager.getPackageInfo(
                     PlaybackIntentContract.PACKAGE_BIGEYES_TV,
                     PackageManager.PackageInfoFlags.of(0)
@@ -33,28 +43,71 @@ class BigEyesTvConnector(private val context: Context) {
                 @Suppress("DEPRECATION")
                 context.packageManager.getPackageInfo(PlaybackIntentContract.PACKAGE_BIGEYES_TV, 0)
             }
-            true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toLong()
+            }
         } catch (_: PackageManager.NameNotFoundException) {
-            false
+            0L
         } catch (e: Throwable) {
             Log.w(TAG, "Error checking BigEyesTV installation: ${e.message}")
-            false
+            0L
         }
     }
 
+    fun isTvAppInstalled(): Boolean {
+        return getTvVersionCode() > 0L
+    }
+
+    /**
+     * Direct casting is only safe on BigEyesTV builds that ship the command receiver,
+     * status feedback and header support, otherwise the intent would be swallowed silently.
+     */
+    fun isDirectCastSupported(): Boolean {
+        val versionCode = getTvVersionCode()
+        return if (versionCode <= 0L) {
+            false
+        } else {
+            val supported = versionCode >= PlaybackIntentContract.MIN_TV_VERSION_CODE
+            if (!supported) {
+                Log.w(
+                    TAG,
+                    "BigEyesTV v$versionCode is older than required " +
+                        "v${PlaybackIntentContract.MIN_TV_VERSION_CODE}, direct cast disabled"
+                )
+            }
+            supported
+        }
+    }
+
+    /**
+     * Start playback on BigEyesTV.
+     *
+     * @param queue optional fully resolved episode queue; when provided the TV owns local
+     * auto-next playback, otherwise the phone drives episode transitions.
+     */
     fun startTvPlayback(
         item: PlaybackItem,
         autoPlayNext: Boolean,
-        startPositionMs: Long = 0L
+        startPositionMs: Long = 0L,
+        queue: List<Episode>? = null
     ): Boolean {
-        if (!isTvAppInstalled()) {
-            Log.w(TAG, "BigEyesTV is not installed on this device")
+        if (!isDirectCastSupported()) {
+            Log.w(TAG, "BigEyesTV direct cast is unavailable on this device")
             return false
         }
 
         registerStatusReceiver()
 
-        val intent = Intent(PlaybackIntentContract.ACTION_PLAY).apply {
+        val action = if (queue != null && queue.size > 1) {
+            PlaybackIntentContract.ACTION_PLAY_QUEUE
+        } else {
+            PlaybackIntentContract.ACTION_PLAY
+        }
+
+        val intent = Intent(action).apply {
             component = ComponentName(
                 PlaybackIntentContract.PACKAGE_BIGEYES_TV,
                 PlaybackIntentContract.TV_MAIN_ACTIVITY
@@ -68,17 +121,30 @@ class BigEyesTvConnector(private val context: Context) {
             putExtra(PlaybackIntentContract.EXTRA_EPISODE_INDEX, item.episode.episodeIndex)
             putExtra(PlaybackIntentContract.EXTRA_EPISODE_TITLE, item.episode.episodeTitle)
             putExtra(PlaybackIntentContract.EXTRA_TOTAL_COUNT, item.totalCount)
+            // Both keys are sent: BigEyesTV reads the canonical one and older builds the alias
             putExtra(PlaybackIntentContract.EXTRA_POSITION_MS, startPositionMs)
+            putExtra(PlaybackIntentContract.EXTRA_SEEK_POSITION, startPositionMs)
             putExtra(PlaybackIntentContract.EXTRA_AUTO_PLAY_NEXT, autoPlayNext)
 
             item.headers["Referer"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_REFERER, it) }
             item.headers["User-Agent"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_USER_AGENT, it) }
             item.headers["Cookie"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_COOKIE, it) }
+
+            if (action == PlaybackIntentContract.ACTION_PLAY_QUEUE && queue != null) {
+                putExtra(
+                    PlaybackIntentContract.EXTRA_EPISODE_QUEUE,
+                    PlaybackIntentContract.buildQueueJson(queue)
+                )
+            }
         }
 
         return try {
             context.startActivity(intent)
-            Log.i(TAG, "Successfully dispatched ACTION_PLAY to BigEyesTV for episode: ${item.episode.displayTitle}")
+            Log.i(
+                TAG,
+                "Dispatched ${item.episode.displayTitle} to BigEyesTV " +
+                    "(action=$action, queue=${queue?.size ?: 1}, autoPlayNext=$autoPlayNext)"
+            )
             true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to launch BigEyesTV: ${e.message}", e)
@@ -111,6 +177,8 @@ class BigEyesTvConnector(private val context: Context) {
     fun previous() = sendCommand(PlaybackIntentContract.ACTION_PREVIOUS)
 
     fun seekTo(positionMs: Long) = sendCommand(PlaybackIntentContract.ACTION_SEEK) {
+        // Canonical key first, alias kept for BigEyesTV builds older than v16
+        putExtra(PlaybackIntentContract.EXTRA_SEEK_POSITION, positionMs)
         putExtra(PlaybackIntentContract.EXTRA_POSITION_MS, positionMs)
     }
 
