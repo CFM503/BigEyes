@@ -30,7 +30,7 @@ jobs:
           gradle-home-cache-cleanup: true
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Grant Execute Permission to Gradle
         run: chmod +x bigeyes-app/gradlew
