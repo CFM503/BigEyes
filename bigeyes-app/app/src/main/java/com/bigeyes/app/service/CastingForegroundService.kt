@@ -200,11 +200,23 @@ class CastingForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
         )
 
+        // Notification action feeding ACTION_STOP_CAST, so the user can end a cast without
+        // reopening the app (and so the stop branch is reachable).
+        val stopIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, CastingForegroundService::class.java).apply {
+                action = ACTION_STOP_CAST
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        )
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止投屏", stopIntent)
             .setOngoing(true)
             .build()
 
@@ -215,7 +227,12 @@ class CastingForegroundService : Service() {
         }
     }
 
-    fun castPlaybackItem(item: com.bigeyes.app.model.playback.PlaybackItem, targetDeviceId: String? = null, onResult: ((Boolean, String?) -> Unit)? = null) {
+    fun castPlaybackItem(
+        item: com.bigeyes.app.model.playback.PlaybackItem,
+        targetDeviceId: String? = null,
+        startPositionMs: Long = 0L,
+        onResult: ((Boolean, String?) -> Unit)? = null
+    ) {
         val candidate = VideoCandidate(
             url = item.playUrl,
             referer = item.headers["Referer"],
@@ -224,10 +241,15 @@ class CastingForegroundService : Service() {
             title = item.displayTitle,
             timestamp = System.currentTimeMillis()
         )
-        castCandidate(candidate, targetDeviceId, onResult)
+        castCandidate(candidate, targetDeviceId, startPositionMs, onResult)
     }
 
-    fun castCandidate(candidate: VideoCandidate, targetDeviceId: String? = null, onResult: ((Boolean, String?) -> Unit)? = null) {
+    fun castCandidate(
+        candidate: VideoCandidate,
+        targetDeviceId: String? = null,
+        startPositionMs: Long = 0L,
+        onResult: ((Boolean, String?) -> Unit)? = null
+    ) {
         scope.launch {
             try {
                 renewLocks()
@@ -268,6 +290,11 @@ class CastingForegroundService : Service() {
                     )
                     if (okSet) {
                         dlnaManager.controller.play(ctrlUrl)
+                        if (startPositionMs > 0L) {
+                            // AVTransport always starts at 0 after SetAVTransportURI.
+                            dlnaManager.controller.seek(ctrlUrl, formatAvTransportTime(startPositionMs))
+                            Log.i(TAG, "Resuming DLNA playback at ${startPositionMs}ms")
+                        }
                         currentStatus = CastStatus(
                             hasActiveStream = true,
                             streamId = session.streamId,
@@ -281,14 +308,10 @@ class CastingForegroundService : Service() {
                         onResult?.invoke(false, "无法向电视推送播放地址")
                     }
                 } else {
-                    currentStatus = CastStatus(
-                        hasActiveStream = true,
-                        streamId = session.streamId,
-                        title = candidate.displayTitle,
-                        device = null,
-                        state = "idle"
-                    )
-                    onResult?.invoke(true, null)
+                    // No renderer answered: this is a failure, not a successful cast.
+                    Log.w(TAG, "No DLNA renderer with an AVTransport control URL was discovered")
+                    currentStatus = CastStatus()
+                    onResult?.invoke(false, "未找到可用的 DLNA 电视设备")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Cast failed: ${e.message}", e)
@@ -346,6 +369,50 @@ class CastingForegroundService : Service() {
             }
             currentStatus = CastStatus()
         }
+    }
+
+    // ==================== DLNA transport control ====================
+    // Invoked by PlaybackController whenever BigEyesTV direct cast is not the active target.
+
+    fun pausePlayback() = withControlUrl("Pause") { dlnaManager.controller.pause(it) }
+
+    fun resumePlayback() = withControlUrl("Play") { dlnaManager.controller.play(it) }
+
+    fun seekPlayback(positionMs: Long) = withControlUrl("Seek") { ctrlUrl ->
+        dlnaManager.controller.seek(ctrlUrl, formatAvTransportTime(positionMs))
+    }
+
+    fun stopPlayback() {
+        stopCasting()
+    }
+
+    private fun withControlUrl(command: String, block: suspend (String) -> Boolean) {
+        val ctrlUrl = dlnaManager.getSelectedDevice()?.avTransportControlUrl
+        if (ctrlUrl.isNullOrBlank()) {
+            Log.w(TAG, "Ignoring $command: no DLNA renderer is selected")
+            return
+        }
+        scope.launch {
+            renewLocks()
+            try {
+                if (!block(ctrlUrl)) {
+                    Log.w(TAG, "$command was rejected by the renderer")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "$command failed: ${e.message}")
+            }
+        }
+    }
+
+    /** AVTransport RelTime/AbsTime use absolute `HH:MM:SS`. */
+    private fun formatAvTransportTime(positionMs: Long): String {
+        val totalSeconds = (positionMs.coerceAtLeast(0L) / 1000L).toInt()
+        return String.format(
+            "%02d:%02d:%02d",
+            totalSeconds / 3600,
+            (totalSeconds % 3600) / 60,
+            totalSeconds % 60
+        )
     }
 
     override fun onDestroy() {

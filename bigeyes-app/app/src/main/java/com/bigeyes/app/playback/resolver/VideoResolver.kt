@@ -54,6 +54,10 @@ class VideoResolver(
             IllegalArgumentException("No target webpage URL specified for episode")
         )
 
+        // Track the in-flight resolve so [cancelActiveResolve] can actually abort it.
+        val thisJob = coroutineContext[Job]
+        activeResolveJob = thisJob
+
         try {
             val resolvedItem = withTimeout(RESOLVE_TIMEOUT_MS) {
                 val candidateDeferred = CompletableDeferred<VideoCandidate>()
@@ -119,6 +123,10 @@ class VideoResolver(
             Result.failure(Exception("下一集加载超时，请检查网络或网站数据源"))
         } catch (e: Throwable) {
             Result.failure(Exception("下一集解析失败: ${e.message}"))
+        } finally {
+            if (activeResolveJob === thisJob) {
+                activeResolveJob = null
+            }
         }
     }
 

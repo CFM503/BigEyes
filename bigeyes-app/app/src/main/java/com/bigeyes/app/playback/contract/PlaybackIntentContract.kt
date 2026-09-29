@@ -6,7 +6,9 @@ import org.json.JSONObject
 
 object PlaybackIntentContract {
     const val PACKAGE_BIGEYES_TV = "com.bigeyes.tv"
-    const val TV_MAIN_ACTIVITY = "com.bigeyes.tv.MainActivity"
+    // Fully qualified class of the TV entry activity. Must match bigeyestv's
+    // AndroidManifest android:name=".ui.MainActivity" (namespace com.bigeyes.tv).
+    const val TV_MAIN_ACTIVITY = "com.bigeyes.tv.ui.MainActivity"
     const val TV_COMMAND_RECEIVER = "com.bigeyes.tv.playback.PlaybackCommandReceiver"
 
     /**

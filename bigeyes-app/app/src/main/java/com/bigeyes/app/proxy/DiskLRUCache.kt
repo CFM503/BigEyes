@@ -95,8 +95,9 @@ class DiskLRUCache(
             val file = File(cacheDir, key)
             try {
                 file.writeBytes(data)
-                entries[key] = size
-                currentSize += size
+                // Overwriting an existing entry must not double-count its size.
+                val previous = entries.put(key, size) ?: 0L
+                currentSize = (currentSize - previous + size).coerceAtLeast(0L)
             } catch (e: Exception) {
                 Log.e(TAG, "Error writing cache file $key: ${e.message}")
             }

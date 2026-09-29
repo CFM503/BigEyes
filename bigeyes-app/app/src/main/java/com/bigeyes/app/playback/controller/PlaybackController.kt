@@ -21,12 +21,21 @@ class PlaybackController(
     private val videoResolver: VideoResolver,
     private val tvConnector: BigEyesTvConnector,
     private val scope: CoroutineScope,
-    var onCastPlaybackHandler: ((PlaybackItem, onResult: (Boolean, String?) -> Unit) -> Unit)? = null,
-    var onLocalPlaybackHandler: ((PlaybackItem) -> Unit)? = null
+    var onCastPlaybackHandler: ((PlaybackItem, startPositionMs: Long, onResult: (Boolean, String?) -> Unit) -> Unit)? = null,
+    var onLocalPlaybackHandler: ((PlaybackItem) -> Unit)? = null,
+    /** Wired by the UI; used whenever the active renderer is not BigEyesTV (DLNA cast). */
+    var castTransportControl: CastTransportControl? = null
 ) {
     companion object {
         private const val TAG = "PlaybackController"
         const val COUNTDOWN_SECONDS = 10
+
+        /** Saved positions closer than this to either end of an episode are ignored. */
+        private const val RESUME_MIN_POSITION_MS = 5_000L
+        private const val RESUME_TAIL_MS = 10_000L
+
+        /** How often real playhead progress is written back to playback history. */
+        private const val HISTORY_SAVE_INTERVAL_MS = 10_000L
     }
 
     val queue = EpisodeQueue()
@@ -46,6 +55,14 @@ class PlaybackController(
 
     /** One-shot UI override of the cast target; null means "use the user preference". */
     private var bigEyesTvOverride: Boolean? = null
+
+    /** Episode index chosen from playback history when the queue was loaded. */
+    private var resumeTargetIndex: Int = -1
+
+    /** Playhead carried over from history and handed to the next dispatched playback. */
+    private var pendingResumePositionMs: Long = 0L
+
+    private var lastHistoryPersistAt = 0L
 
     /** Read-only view of the active cast target, used by the UI to mirror BigEyesTV status. */
     val isCastingToBigEyesTv: Boolean
@@ -76,7 +93,10 @@ class PlaybackController(
     fun loadQueue(episodes: List<Episode>, initialIndex: Int = 0) {
         countdownJob?.cancel()
         completionGuard.reset()
-        queue.setQueue(episodes, initialIndex)
+        val (resumeIndex, resumePositionMs) = resolveResumeTarget(episodes, initialIndex)
+        resumeTargetIndex = resumeIndex
+        pendingResumePositionMs = resumePositionMs
+        queue.setQueue(episodes, resumeIndex)
         val current = queue.currentEpisode
         _session.value = _session.value.copy(
             seriesId = current?.seriesId ?: "",
@@ -84,12 +104,59 @@ class PlaybackController(
             currentIndex = queue.currentIndex,
             episodeList = queue.items,
             currentEpisode = current,
-            playbackState = PlaybackState.Idle
+            playbackState = PlaybackState.Idle,
+            positionMs = resumePositionMs
         )
+        if (resumePositionMs > 0L) {
+            Log.i(TAG, "Resuming ${current?.displayTitle} from ${resumePositionMs}ms (history)")
+        }
     }
+
+    /**
+     * Picks up where the viewer stopped: returns the episode index and playhead to restore.
+     * A page that already points at a specific episode always wins over the saved index.
+     */
+    private fun resolveResumeTarget(episodes: List<Episode>, requestedIndex: Int): Pair<Int, Long> {
+        if (episodes.isEmpty()) return requestedIndex to 0L
+        val history = PlaybackHistoryManager.getHistory(context, episodes.first().seriesId)
+            ?: return requestedIndex to 0L
+
+        val savedIndex = history.episodeIndex
+        if (savedIndex !in episodes.indices) return requestedIndex to 0L
+        if (requestedIndex != 0 && requestedIndex != savedIndex) return requestedIndex to 0L
+
+        val positionMs = history.positionMs
+        if (positionMs < RESUME_MIN_POSITION_MS) return savedIndex to 0L
+        if (history.durationMs > 0 && positionMs >= history.durationMs - RESUME_TAIL_MS) {
+            return savedIndex to 0L
+        }
+        return savedIndex to positionMs
+    }
+
+    private fun consumeResumePosition(): Long {
+        val positionMs = pendingResumePositionMs
+        pendingResumePositionMs = 0L
+        resumeTargetIndex = -1
+        return positionMs
+    }
+
+    /**
+     * Read-only view of the pending resume playhead. Callers that may still fall back to a
+     * different renderer peek first and let [onTvDirectCastStarted] / [onDlnaCastStarted]
+     * consume it once a target actually accepted the stream.
+     */
+    fun peekResumePositionMs(): Long = pendingResumePositionMs
+
+    /** Queue handed over to BigEyesTV only when every episode still carries a fresh URL. */
+    fun buildQueueForTvHandover(): List<Episode>? = buildFullyResolvedQueue()
 
     fun playEpisode(index: Int, useBigEyesTv: Boolean? = null) {
         countdownJob?.cancel()
+        // An explicit selection overrides the saved playhead unless it is the same episode.
+        if (index != resumeTargetIndex) {
+            resumeTargetIndex = -1
+            pendingResumePositionMs = 0L
+        }
         val targetEpisode = queue.jumpTo(index) ?: return
         bigEyesTvOverride = useBigEyesTv
         resolveAndStartPlayback(targetEpisode)
@@ -112,6 +179,7 @@ class PlaybackController(
 
     fun playNext() {
         countdownJob?.cancel()
+        clearPendingResume()
         if (!queue.hasNext) {
             Log.i(TAG, "Already at the last episode in queue")
             _session.value = _session.value.copy(
@@ -125,6 +193,7 @@ class PlaybackController(
 
     fun playPrevious() {
         countdownJob?.cancel()
+        clearPendingResume()
         if (!queue.hasPrevious) {
             Log.i(TAG, "Already at the first episode in queue")
             return
@@ -171,9 +240,13 @@ class PlaybackController(
 
     private fun dispatchPlayback(item: PlaybackItem) {
         val current = item.episode
+        val startPositionMs = consumeResumePosition()
+
         _session.value = _session.value.copy(
             currentEpisode = current,
-            playbackState = PlaybackState.Playing(item, 0L, current.durationMs),
+            playbackState = PlaybackState.Playing(item, startPositionMs, current.durationMs),
+            positionMs = startPositionMs,
+            durationMs = current.durationMs,
             targetDevice = null
         )
 
@@ -188,7 +261,7 @@ class PlaybackController(
                 episodeIndex = current.episodeIndex,
                 episodeTitle = current.displayTitle,
                 pageUrl = current.pageUrl,
-                positionMs = 0L,
+                positionMs = startPositionMs,
                 durationMs = current.durationMs
             )
         )
@@ -206,7 +279,7 @@ class PlaybackController(
             val ok = tvConnector.startTvPlayback(
                 item = tvItem,
                 autoPlayNext = _session.value.autoPlayNext,
-                startPositionMs = 0L,
+                startPositionMs = startPositionMs,
                 queue = tvQueue
             )
             if (ok) {
@@ -219,7 +292,12 @@ class PlaybackController(
             isPlayingOnBigEyesTv = false
         }
 
-        fallbackToCastOrLocal(item)
+        fallbackToCastOrLocal(item, startPositionMs)
+    }
+
+    private fun clearPendingResume() {
+        resumeTargetIndex = -1
+        pendingResumePositionMs = 0L
     }
 
     /**
@@ -238,28 +316,69 @@ class PlaybackController(
      * Entry point used when the user casts a raw sniffed candidate directly to BigEyesTV
      * (投屏按钮直连分支). Mirrors what [dispatchPlayback] would do for an episode playback.
      */
-    fun onTvDirectCastStarted(item: PlaybackItem) {
+    fun onTvDirectCastStarted(item: PlaybackItem, startPositionMs: Long? = null) {
         countdownJob?.cancel()
         completionGuard.reset()
         isPlayingOnBigEyesTv = true
         tvOwnsQueue = false
 
+        val positionMs = startPositionMs ?: peekResumePositionMs()
+        consumeResumePosition()
+
         val total = queue.size.coerceAtLeast(1)
         _session.value = _session.value.copy(
             currentEpisode = item.episode,
             currentIndex = queue.currentIndex,
-            playbackState = PlaybackState.Playing(item, 0L, item.episode.durationMs),
-            positionMs = 0L,
+            playbackState = PlaybackState.Playing(item, positionMs, item.episode.durationMs),
+            positionMs = positionMs,
             durationMs = item.episode.durationMs,
             targetDevice = "BigEyesTV"
         )
         Log.i(TAG, "Direct BigEyesTV cast started for ${item.episode.displayTitle} (queue=$total)")
     }
 
-    private fun fallbackToCastOrLocal(item: PlaybackItem) {
+    /**
+     * Entry point used when a local-proxy DLNA cast actually reached a renderer
+     * (投屏按钮 DLNA 分支). Without this the session never entered [PlaybackState.Playing],
+     * so every transport button on the control bar was a no-op on a DLNA television.
+     */
+    fun onDlnaCastStarted(item: PlaybackItem, deviceName: String?, startPositionMs: Long = 0L) {
+        countdownJob?.cancel()
+        completionGuard.reset()
+        isPlayingOnBigEyesTv = false
+        tvOwnsQueue = false
+        consumeResumePosition()
+
+        _session.value = _session.value.copy(
+            currentEpisode = item.episode,
+            currentIndex = queue.currentIndex,
+            playbackState = PlaybackState.Playing(item, startPositionMs, item.episode.durationMs),
+            positionMs = startPositionMs,
+            durationMs = item.episode.durationMs,
+            targetDevice = deviceName ?: "电视"
+        )
+        Log.i(TAG, "DLNA cast started for ${item.episode.displayTitle} on $deviceName")
+    }
+
+    /** Convenience overload for the cast button, where only a queue episode is available. */
+    fun onDlnaCastStarted(episode: Episode, deviceName: String?, startPositionMs: Long = 0L) {
+        onDlnaCastStarted(
+            PlaybackItem(
+                episode = episode,
+                playUrl = episode.playUrl ?: "",
+                headers = episode.playHeaders,
+                index = queue.currentIndex,
+                totalCount = queue.size.coerceAtLeast(1)
+            ),
+            deviceName,
+            startPositionMs
+        )
+    }
+
+    private fun fallbackToCastOrLocal(item: PlaybackItem, startPositionMs: Long) {
         val castHandler = onCastPlaybackHandler
         if (castHandler != null) {
-            castHandler(item) { success, devName ->
+            castHandler(item, startPositionMs) { success, devName ->
                 if (!success) {
                     onLocalPlaybackHandler?.invoke(item)
                 } else {
@@ -376,6 +495,8 @@ class PlaybackController(
     fun pause() {
         if (isPlayingOnBigEyesTv) {
             tvConnector.pause()
+        } else {
+            castTransportControl?.pause()
         }
         val currentItem = (_session.value.playbackState as? PlaybackState.Playing)?.item
         if (currentItem != null) {
@@ -388,6 +509,8 @@ class PlaybackController(
     fun resume() {
         if (isPlayingOnBigEyesTv) {
             tvConnector.resume()
+        } else {
+            castTransportControl?.resume()
         }
         val pausedItem = (_session.value.playbackState as? PlaybackState.Paused)?.item
         if (pausedItem != null) {
@@ -405,6 +528,8 @@ class PlaybackController(
     fun seekTo(positionMs: Long) {
         if (isPlayingOnBigEyesTv) {
             tvConnector.seekTo(positionMs)
+        } else {
+            castTransportControl?.seekTo(positionMs)
         }
         _session.value = _session.value.copy(positionMs = positionMs)
     }
@@ -413,9 +538,11 @@ class PlaybackController(
         countdownJob?.cancel()
         if (isPlayingOnBigEyesTv) {
             tvConnector.stop()
-            isPlayingOnBigEyesTv = false
-            tvOwnsQueue = false
+        } else {
+            castTransportControl?.stop()
         }
+        isPlayingOnBigEyesTv = false
+        tvOwnsQueue = false
         _session.value = _session.value.copy(
             playbackState = PlaybackState.Idle,
             positionMs = 0L
@@ -424,6 +551,37 @@ class PlaybackController(
 
     fun updateProgress(posMs: Long, durMs: Long) {
         _session.value = _session.value.copy(positionMs = posMs, durationMs = durMs)
+        persistProgress(posMs, durMs)
+    }
+
+    /**
+     * Throttled write-back of the live playhead so playback history is a usable
+     * resume point instead of only ever holding 0 or the full duration.
+     */
+    private fun persistProgress(posMs: Long, durMs: Long) {
+        val now = System.currentTimeMillis()
+        if (now - lastHistoryPersistAt < HISTORY_SAVE_INTERVAL_MS) return
+        val episode = queue.currentEpisode ?: return
+        if (episode.seriesId.isBlank()) return
+
+        val state = _session.value.playbackState
+        if (state !is PlaybackState.Playing && state !is PlaybackState.Paused) return
+
+        lastHistoryPersistAt = now
+        PlaybackHistoryManager.saveHistory(
+            context,
+            PlaybackHistoryItem(
+                seriesId = episode.seriesId,
+                seriesTitle = episode.seriesTitle,
+                seasonNumber = episode.seasonNumber,
+                episodeNumber = episode.episodeNumber,
+                episodeIndex = episode.episodeIndex,
+                episodeTitle = episode.displayTitle,
+                pageUrl = episode.pageUrl,
+                positionMs = posMs.coerceAtLeast(0L),
+                durationMs = durMs.coerceAtLeast(0L)
+            )
+        )
     }
 
     private fun handleTvStatusUpdate(state: String, epIndex: Int, posMs: Long, durMs: Long) {

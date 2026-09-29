@@ -56,8 +56,21 @@ class PlaybackIntentContractTest {
     @Test
     fun testMinTvVersionCode() {
         assertEquals(16L, PlaybackIntentContract.MIN_TV_VERSION_CODE)
-        assertEquals("com.bigeyes.tv.MainActivity", PlaybackIntentContract.TV_MAIN_ACTIVITY)
+        // Must match bigeyestv's AndroidManifest android:name=".ui.MainActivity"
+        assertEquals("com.bigeyes.tv.ui.MainActivity", PlaybackIntentContract.TV_MAIN_ACTIVITY)
         assertEquals("com.bigeyes.tv.playback.PlaybackCommandReceiver", PlaybackIntentContract.TV_COMMAND_RECEIVER)
+    }
+
+    @Test
+    fun testTvComponentNamesAreFullyQualified() {
+        assertTrue(
+            "TV_MAIN_ACTIVITY must be absolute so ComponentName never relies on package defaults",
+            PlaybackIntentContract.TV_MAIN_ACTIVITY.startsWith("${PlaybackIntentContract.PACKAGE_BIGEYES_TV}.")
+        )
+        assertTrue(
+            "TV_COMMAND_RECEIVER must be absolute",
+            PlaybackIntentContract.TV_COMMAND_RECEIVER.startsWith("${PlaybackIntentContract.PACKAGE_BIGEYES_TV}.")
+        )
     }
 
     @Test

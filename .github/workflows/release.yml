@@ -35,6 +35,11 @@ jobs:
       - name: Grant Execute Permission to Gradle
         run: chmod +x bigeyes-app/gradlew
 
+      - name: Run Unit Tests
+        run: |
+          cd bigeyes-app
+          ./gradlew testDebugUnitTest --stacktrace --no-daemon
+
       - name: Build Release APK
         run: |
           cd bigeyes-app

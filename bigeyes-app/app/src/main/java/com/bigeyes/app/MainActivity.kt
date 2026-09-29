@@ -62,6 +62,7 @@ import android.view.KeyEvent
 import com.bigeyes.app.model.playback.Episode
 import com.bigeyes.app.model.playback.PlaybackItem
 import com.bigeyes.app.model.playback.PlaybackState
+import com.bigeyes.app.playback.controller.CastTransportControl
 import com.bigeyes.app.playback.controller.PlaybackController
 import com.bigeyes.app.playback.remote.RemoteKeyController
 import com.bigeyes.app.playback.remote.RemoteUiCallbacks
@@ -217,8 +218,8 @@ class MainActivity : AppCompatActivity() {
             videoResolver = videoResolver,
             tvConnector = bigEyesTvConnector,
             scope = lifecycleScope,
-            onCastPlaybackHandler = { item, onResult ->
-                castPlaybackItem(item, onResult)
+            onCastPlaybackHandler = { item, startPositionMs, onResult ->
+                castPlaybackItem(item, startPositionMs, onResult)
             },
             onLocalPlaybackHandler = { item ->
                 playItemLocally(item)
@@ -258,6 +259,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupPlaybackController() {
+        // DLNA transport path: PlaybackController forwards pause/resume/seek/stop to the
+        // local-proxy renderer whenever BigEyesTV direct cast is not the active target.
+        playbackController.castTransportControl = object : CastTransportControl {
+            override fun pause() {
+                CastingForegroundService.instance?.pausePlayback()
+            }
+
+            override fun resume() {
+                CastingForegroundService.instance?.resumePlayback()
+            }
+
+            override fun seekTo(positionMs: Long) {
+                CastingForegroundService.instance?.seekPlayback(positionMs)
+            }
+
+            override fun stop() {
+                CastingForegroundService.instance?.stopPlayback()
+            }
+        }
+
         lifecycleScope.launch {
             playbackController.session.collect { session ->
                 val tvCasting = playbackController.isCastingToBigEyesTv
@@ -339,6 +360,11 @@ class MainActivity : AppCompatActivity() {
         playbackControlBar.onSelectEpisodeListener = {
             showEpisodeSelectDialog()
         }
+        // Keep PlaybackController's playhead in sync with the DLNA renderer so that
+        // relative transport commands (±15s) start from the real position.
+        playbackControlBar.onRemoteProgress = { positionMs, durationMs ->
+            playbackController.updateProgress(positionMs, durationMs)
+        }
     }
 
     private fun showEpisodeSelectDialog() {
@@ -357,14 +383,19 @@ class MainActivity : AppCompatActivity() {
         activeEpisodeSelectDialog?.show()
     }
 
-    private fun castPlaybackItem(item: PlaybackItem, onResult: (Boolean, String?) -> Unit) {
+    private fun castPlaybackItem(item: PlaybackItem, startPositionMs: Long, onResult: (Boolean, String?) -> Unit) {
         val service = CastingForegroundService.instance
         if (service == null) {
             startCastingService()
             onResult(false, "本地投屏服务正在初始化，请稍候重试")
             return
         }
-        service.castPlaybackItem(item, null, onResult)
+        service.castPlaybackItem(item, null, startPositionMs) { success, deviceName ->
+            if (success) {
+                playbackController.onDlnaCastStarted(item, deviceName, startPositionMs)
+            }
+            onResult(success, deviceName)
+        }
     }
 
     private fun playItemLocally(item: PlaybackItem) {
@@ -1045,14 +1076,24 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        prepareQueueForCandidate(candidate)
+        val headers = prepareQueueForCandidate(candidate)
 
+        // Second-chance direct hand-off (CHANGELOG "双层保护"): covers callers such as the
+        // manual-device dialog that never got a chance to try BigEyesTV first.
+        if (executeDirectTvCast(candidate, headers, quiet = true)) {
+            return
+        }
+
+        val startPositionMs = playbackController.peekResumePositionMs()
         Toast.makeText(this, "正在由手机本地代理推送至电视...", Toast.LENGTH_SHORT).show()
 
-        service.castCandidate(candidate, targetDeviceId) { success, devName ->
+        service.castCandidate(candidate, targetDeviceId, startPositionMs) { success, devName ->
             if (success) {
                 val targetName = devName ?: "电视"
                 Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
+                playbackController.queue.currentEpisode?.let { episode ->
+                    playbackController.onDlnaCastStarted(episode, targetName, startPositionMs)
+                }
                 val currentTitle = playbackController.queue.currentEpisode?.displayTitle ?: candidate.displayTitle
                 playbackControlBar.show(currentTitle, targetName)
                 playbackControlBar.updateQueueState(
@@ -1101,7 +1142,11 @@ class MainActivity : AppCompatActivity() {
      * 直连 BigEyesTV 投屏：跳过手机本地代理，把已解析地址与防盗链 Header 直接交给电视端。
      * 成功返回 true；未启用直连或启动失败返回 false，调用方回退到 DLNA。
      */
-    private fun executeDirectTvCast(candidate: VideoCandidate, headers: Map<String, String>): Boolean {
+    private fun executeDirectTvCast(
+        candidate: VideoCandidate,
+        headers: Map<String, String>,
+        quiet: Boolean = false
+    ): Boolean {
         if (!playbackController.shouldCastToBigEyesTv()) return false
 
         val episode = playbackController.queue.currentEpisode ?: return false
@@ -1112,19 +1157,26 @@ class MainActivity : AppCompatActivity() {
             totalCount = playbackController.queue.size.coerceAtLeast(1)
         )
 
-        Toast.makeText(this, "正在直连 BigEyesTV 投屏...", Toast.LENGTH_SHORT).show()
+        // Hand the whole queue over only when every episode still resolves (CHANGELOG
+        // "队列下放策略"); otherwise the phone keeps driving next/previous.
+        val queue = playbackController.buildQueueForTvHandover()
+        val startPositionMs = playbackController.peekResumePositionMs()
+
+        if (!quiet) {
+            Toast.makeText(this, "正在直连 BigEyesTV 投屏...", Toast.LENGTH_SHORT).show()
+        }
         val started = bigEyesTvConnector.startTvPlayback(
             item = item,
             autoPlayNext = playbackController.session.value.autoPlayNext,
-            startPositionMs = 0L,
-            queue = null
+            startPositionMs = startPositionMs,
+            queue = queue
         )
         if (!started) {
             Log.w(TAG, "Direct BigEyesTV cast failed, falling back to DLNA")
             return false
         }
 
-        playbackController.onTvDirectCastStarted(item)
+        playbackController.onTvDirectCastStarted(item, startPositionMs)
         Toast.makeText(this, "已直连投屏至 BigEyesTV", Toast.LENGTH_LONG).show()
         playbackControlBar.setRemoteProgressSource(true)
         playbackControlBar.show(item.displayTitle, "BigEyesTV")

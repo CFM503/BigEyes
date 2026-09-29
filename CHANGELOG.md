@@ -1,5 +1,31 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.1.2] - 2026-09-29 (跨端联调审计修复：DLNA 播控打通、断点续播与投屏状态真实化)
+
+### 🐛 严重缺陷修复 (P0)
+* **`<queries>` 包可见性与接收端权限双向补齐**：manifest 新增 `<queries><package android:name="com.bigeyes.tv"/></queries>` 与 `com.bigeyes.tv.permission.RECEIVE_PLAYBACK_COMMAND` 声明，Android 11+ 不再查不到电视端、播放命令广播不再被权限拦截；
+* **组件类名修正**：`PlaybackIntentContract` 中电视端 Activity 目标由错误的 `com.bigeyes.tv.MainActivity` 修正为 `com.bigeyes.tv.ui.MainActivity`，并新增 `testTvComponentNamesAreFullyQualified` 守护测试；
+* **手机端 DLNA 播控真正打通**：新增 `CastTransportControl` 接口并注入 `PlaybackController`，暂停/继续/拖动进度/停止在纯 DLNA 投屏下不再是死分支；`PlaybackControlBar` 新增 `onRemoteProgress` 回灌电视端真实进度，并把 `show()` 轮询改为幂等。
+
+### ✨ 投屏体验补强 (P1)
+* **假成功修复**：扫描不到可用 DLNA 设备时不再返回成功，改为 `CastStatus()` + `onResult(false, "未找到可用的 DLNA 电视设备")`；
+* **队列参数直传**：`executeDirectTvCast` 改用 `buildQueueForTvHandover()` 并携带 `peekResumePositionMs()` 起播位置；`executeCast()` 开头先尝试直连（双层保护），静默分支不再弹错误框；
+* **断点续播历史读写**：`PlaybackController` 新增 `resolveResumeTarget / consumeResumePosition / peekResumePositionMs / clearPendingResume / persistProgress`（10 秒节流），重启后按「页面端 `requestedIndex == 0` 才接管集数 + 位置 ≥5s 且距片尾 ≥10s」恢复上次进度；`CastingForegroundService` 在 `play()` 后按起播位置补 `seek()`。
+
+### 🧹 稳定性清理 (P2)
+* `DiskLRUCache.put` 覆盖同 key 时正确扣减旧条目容量，不再累计溢出；
+* `VideoResolver.activeResolveJob` 在 `finally` 中清理，不再泄漏上一次解析任务；
+* `CastingForegroundService` 通知栏新增「停止投屏」动作，使原不可达的 `ACTION_STOP_CAST` 分支真正可达（同时避免在 `PlaybackController.stop()` 中停服务导致直连投屏被误杀）；
+* 删除死方法 `VideoSnifferHelper.triggerNextEpisode()`；
+* `PlaybackControlBar` 的 `isPlaying` 判定改为精确匹配 `PLAYING`，不再把 `PAUSED_PLAYBACK` 误判为播放中。
+
+### ✅ 测试与 CI
+* `PlaybackIntentContractTest` 新增 TV 组件类名守护用例，41 项单测全部通过；
+* `release.yml` 新增 `testDebugUnitTest` 步骤，发布前强制跑测试；
+* 版本号升级 `versionCode 30 / versionName 2.1.2`。
+
+---
+
 ## [v2.1.1] - 2026-09-28
 
 ### 📺 BigEyesTV 直连投屏全链路补全 (Direct Cast)
