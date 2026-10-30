@@ -28,11 +28,12 @@ class EmbeddedProxyServer(
     class PooledAsyncRunner(
         private val executor: ExecutorService = ThreadPoolExecutor(
             4,
-            16,
+            32,
             60L,
             TimeUnit.SECONDS,
-            SynchronousQueue(),
-            Executors.defaultThreadFactory()
+            java.util.concurrent.LinkedBlockingQueue(128),
+            Executors.defaultThreadFactory(),
+            ThreadPoolExecutor.CallerRunsPolicy()
         )
     ) : AsyncRunner {
         private val running = Collections.synchronizedList(mutableListOf<ClientHandler>())
@@ -83,7 +84,10 @@ class EmbeddedProxyServer(
                     serveM3U8(uri)
                 }
                 uri.startsWith("/stream/") && (uri.contains("/seg/")) -> {
-                    serveSegment(uri)
+                    serveSegment(session, uri)
+                }
+                uri.startsWith("/stream/") && (uri.endsWith("/video.mp4") || uri.contains("/video.")) -> {
+                    serveDirectMedia(session, uri)
                 }
                 uri.startsWith("/stream/") && (uri.contains("/key/")) -> {
                     serveKey(uri)
@@ -130,7 +134,7 @@ class EmbeddedProxyServer(
         return resp
     }
 
-    private fun serveSegment(uri: String): Response {
+    private fun serveSegment(session: IHTTPSession, uri: String): Response {
         val parts = uri.trim('/').split('/')
         if (parts.size < 4) {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid segment path")
@@ -144,6 +148,37 @@ class EmbeddedProxyServer(
             streamManager.getSegment(streamId, segIndex)
         }
 
+        val rangeHeader = session.headers["range"]
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            try {
+                val rangeSpec = rangeHeader.substring(6).trim()
+                val rangeParts = rangeSpec.split('-')
+                val start = rangeParts[0].toLongOrNull() ?: 0L
+                val end = if (rangeParts.size > 1 && rangeParts[1].isNotEmpty()) {
+                    rangeParts[1].toLongOrNull() ?: (data.size - 1L)
+                } else {
+                    data.size - 1L
+                }
+                val safeStart = start.coerceIn(0L, (data.size - 1L).coerceAtLeast(0L))
+                val safeEnd = end.coerceIn(safeStart, (data.size - 1L).coerceAtLeast(0L))
+                val length = (safeEnd - safeStart + 1).toInt()
+                val partialData = data.copyOfRange(safeStart.toInt(), safeStart.toInt() + length)
+
+                val resp = newFixedLengthResponse(
+                    Response.Status.PARTIAL_CONTENT,
+                    "video/mp2t",
+                    ByteArrayInputStream(partialData),
+                    length.toLong()
+                )
+                resp.addHeader("Content-Range", "bytes $safeStart-$safeEnd/${data.size}")
+                resp.addHeader("Accept-Ranges", "bytes")
+                addCorsHeaders(resp)
+                return resp
+            } catch (e: Exception) {
+                Log.w(TAG, "Error processing range $rangeHeader: ${e.message}")
+            }
+        }
+
         val stream = ByteArrayInputStream(data)
         val resp = newFixedLengthResponse(
             Response.Status.OK,
@@ -154,6 +189,56 @@ class EmbeddedProxyServer(
         resp.addHeader("Accept-Ranges", "bytes")
         addCorsHeaders(resp)
         return resp
+    }
+
+    private fun serveDirectMedia(session: IHTTPSession, uri: String): Response {
+        val parts = uri.trim('/').split('/')
+        if (parts.size < 3) {
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid media path")
+        }
+        val streamId = parts[1]
+        val streamSession = streamManager.getSession(streamId)
+            ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Stream session not found")
+
+        val targetUrl = streamSession.originalUrl
+        val rangeHeader = session.headers["range"]
+
+        return runBlocking {
+            try {
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(30, TimeUnit.SECONDS)
+                    .build()
+
+                val reqBuilder = okhttp3.Request.Builder().url(targetUrl)
+                streamSession.referer?.let { reqBuilder.addHeader("Referer", it) }
+                streamSession.userAgent?.let { reqBuilder.addHeader("User-Agent", it) }
+                streamSession.cookie?.let { reqBuilder.addHeader("Cookie", it) }
+                if (rangeHeader != null) {
+                    reqBuilder.addHeader("Range", rangeHeader)
+                }
+
+                val upstreamResp = client.newCall(reqBuilder.build()).execute()
+                val contentType = upstreamResp.header("Content-Type") ?: "video/mp4"
+                val bodyStream = upstreamResp.body?.byteStream() ?: ByteArrayInputStream(ByteArray(0))
+                val contentLength = upstreamResp.body?.contentLength() ?: -1L
+
+                val status = if (upstreamResp.code == 206) Response.Status.PARTIAL_CONTENT else Response.Status.OK
+                val resp = if (contentLength >= 0) {
+                    newFixedLengthResponse(status, contentType, bodyStream, contentLength)
+                } else {
+                    newChunkedResponse(status, contentType, bodyStream)
+                }
+
+                upstreamResp.header("Content-Range")?.let { resp.addHeader("Content-Range", it) }
+                resp.addHeader("Accept-Ranges", "bytes")
+                addCorsHeaders(resp)
+                resp
+            } catch (e: Exception) {
+                Log.e(TAG, "Error proxying direct media: ${e.message}", e)
+                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Proxy error: ${e.message}")
+            }
+        }
     }
 
     private fun serveKey(uri: String): Response {

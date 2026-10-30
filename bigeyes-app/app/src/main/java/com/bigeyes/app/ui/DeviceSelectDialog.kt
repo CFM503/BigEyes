@@ -61,7 +61,7 @@ class DeviceSelectDialog(
             val tvIp = view.findViewById<TextView>(R.id.tv_device_ip)
             val rbSelected = view.findViewById<RadioButton>(R.id.rb_device_selected)
 
-            tvName.text = device.name
+            tvName.text = if (device.isBigEyesTv) "${device.name} [BigEyesTV 专属直连]" else device.name
             tvIp.text = "IP: ${device.ip}"
             rbSelected.isChecked = device.selected
 

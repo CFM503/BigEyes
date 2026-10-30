@@ -59,3 +59,4 @@ Thumbs.db
 # BigEyes Cache
 cache/
 .bigeyes/
+.github-runs.json

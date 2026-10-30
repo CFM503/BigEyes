@@ -1,5 +1,32 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.2.0] - 2026-10-30 (BigEyes LAN Companion 伴侣协议 v1.0 与端到端联动体系构建)
+
+### 🚀 伴侣跨屏投屏体系 (P0)
+* **BigEyes Companion LAN 伴侣协议全面落地**：
+  * 重构 `BigEyesTvConnector`，从单纯依赖单设备本地 Android Intent/Broadcast IPC 升级为**网络 REST + 本地 IPC 混合双通道**；
+  * 当在 Wi-Fi 局域网中发现或绑定 BigEyesTV 时，自动走 `:7000` 端口伴侣 REST API（`POST /bigeyes/api/play`、`POST /bigeyes/api/control`），直传完整播放队列、断点与防盗链 Header；
+  * 毫秒级状态镜像：开启 1000ms 周期性轮询 `GET /bigeyes/api/status`，实时同步大屏播放状态与进度；
+  * 保留本地 Intent/Broadcast 作为单机测试与同设备运行的高性能回退。
+
+### 📡 发现与连接增强 (P1)
+* **BigEyesTV 局域网智能识别**：`SsdpScanner.parseDeviceXml` 深度识别 BigEyesTV 厂商名、友好名与端口标识，自动标记 `isBigEyesTv = true` 与 `apiPort = 7000`；
+* **手动 IP 探测强化**：`SsdpScanner.probeLocation` 探测候选列表中前置加入 `:7000` 端口与描述路径，直接输入电视 IP 即可秒连 BigEyesTV；
+* **设备选择交互标示**：`DeviceSelectDialog` 针对 BigEyesTV 显式高亮展示 `[BigEyesTV 专属直连]` 标签。
+
+### 🛠 播控与并发稳定性修复 (P1)
+* **切集竞态彻底解决**：`PlaybackController.handleTvStatusUpdate` 在电视端拥有队列（`tvOwnsQueue == true`）时，拦截手机端重复触发的 `onPlaybackCompleted()` 倒计时，消除手机与电视双重自动切集的竞态冲突；
+* **代理并发线程池防拒保护**：`EmbeddedProxyServer.PooledAsyncRunner` 由无缓冲的 `SynchronousQueue` 升级为 `LinkedBlockingQueue(128)` + `CallerRunsPolicy()`，根治并发切片下载时偶发的 `RejectedExecutionException` 与连接断开；
+* **切片 HTTP Range 协议支持**：`EmbeddedProxyServer.serveSegment` 补全 HTTP 206 Partial Content 分片断点传输支持，保障 ExoPlayer 严苛 Range 请求的稳定加载；
+* **直接 MP4 视频嗅探支持**：`StreamManager.createSession` 兼容非 M3U8 的直链媒体（MP4/MKV 等），自动转为直接流会话或动态 VOD 虚拟清单，彻底消除了抛出 `IllegalArgumentException("嗅探到的地址返回的不是标准 M3U8 播放列表")` 的异常崩溃；
+* **投屏防抖**：`MainActivity.handleCastButtonClick` 增加 800ms 点击防抖，防止高频点击产生重叠弹窗。
+
+### 🧪 自动化测试
+* `SsdpScannerTest` 新增 `testBigEyesTvXmlParsing`，覆盖 BigEyesTV 专属协议特征自动识别的单测断言；
+* 版本号升级：`versionCode 32 / versionName 2.2.0`。
+
+---
+
 ## [v2.1.3] - 2026-09-29 (与 BigEyesTV v1.2.2 联调发布：手机端无功能变更)
 
 ### 🔗 联调与发布

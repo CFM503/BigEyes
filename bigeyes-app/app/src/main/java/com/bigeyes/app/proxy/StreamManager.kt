@@ -42,12 +42,34 @@ class StreamManager(context: Context) {
         Log.i(TAG, "Creating new stream session $streamId for URL: $url")
 
         // 1. Fetch root playlist
-        val rootContent = fetcher.fetchText(url, referer, userAgent, cookie)
+        val rootContent = try {
+            fetcher.fetchText(url, referer, userAgent, cookie)
+        } catch (e: Exception) {
+            ""
+        }
         val isM3U8 = rootContent.contains("#EXTM3U", ignoreCase = true) ||
                      rootContent.contains("#EXTINF", ignoreCase = true) ||
                      rootContent.contains("#EXT-X-STREAM-INF", ignoreCase = true)
         if (!isM3U8) {
-            throw IllegalArgumentException("嗅探到的地址返回的不是标准 M3U8 播放列表")
+            Log.i(TAG, "URL is not M3U8 playlist. Treating as direct media stream: $url")
+            val session = StreamSession(
+                streamId = streamId,
+                originalUrl = url,
+                referer = referer,
+                userAgent = userAgent,
+                cookie = cookie,
+                title = title,
+                isMaster = false,
+                isDirectMedia = true
+            )
+            sessions[streamId] = session
+            activeStreamId?.let { oldId ->
+                if (oldId != streamId) {
+                    prefetcher.cancelStream(oldId)
+                }
+            }
+            activeStreamId = streamId
+            return session
         }
         val isMaster = M3U8Parser.isMasterPlaylist(rootContent)
         var mediaContent = rootContent
@@ -91,6 +113,9 @@ class StreamManager(context: Context) {
 
     fun getRewrittenM3U8(streamId: String, serverBaseUrl: String): String {
         val session = sessions[streamId] ?: throw NoSuchElementException("Stream session $streamId not found")
+        if (session.isDirectMedia) {
+            return "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:7200\n#EXTINF:7200.0,\n$serverBaseUrl/stream/$streamId/video.mp4\n#EXT-X-ENDLIST\n"
+        }
         val rawContent = rawMediaPlaylists[streamId] ?: throw NoSuchElementException("Raw content for $streamId not found")
         val baseUrl = rawBaseUrls[streamId] ?: session.originalUrl
 

@@ -928,7 +928,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var lastCastClickTime: Long = 0L
+
     private fun handleCastButtonClick() {
+        val now = System.currentTimeMillis()
+        if (now - lastCastClickTime < 800L) {
+            return
+        }
+        lastCastClickTime = now
+
         if (currentCandidates.isNotEmpty()) {
             showCandidatesOrCast(currentCandidates)
             return
@@ -1026,11 +1034,25 @@ class MainActivity : AppCompatActivity() {
                     devices = devices,
                     onManualAdd = { showManualDeviceDialog(candidate) }
                 ) { selectedDevice ->
+                    if (selectedDevice.isBigEyesTv) {
+                        bigEyesTvConnector.bindDevice(selectedDevice)
+                        val headers = prepareQueueForCandidate(candidate)
+                        if (executeDirectTvCast(candidate, headers)) {
+                            return@DeviceSelectDialog
+                        }
+                    }
                     executeCast(candidate, selectedDevice.id)
                 }.show()
             } else {
-                val soleId = devices.firstOrNull()?.id
-                executeCast(candidate, soleId)
+                val soleDevice = devices.firstOrNull()
+                if (soleDevice != null && soleDevice.isBigEyesTv && AppPreferences.isPreferBigEyesTv(this@MainActivity)) {
+                    bigEyesTvConnector.bindDevice(soleDevice)
+                    val headers = prepareQueueForCandidate(candidate)
+                    if (executeDirectTvCast(candidate, headers)) {
+                        return@launch
+                    }
+                }
+                executeCast(candidate, soleDevice?.id)
             }
         }
     }
@@ -1057,6 +1079,13 @@ class MainActivity : AppCompatActivity() {
                         val dev = dlnaManager.addManualDevice(text)
                         if (dev != null) {
                             Toast.makeText(this@MainActivity, "已连接设备: ${dev.name}", Toast.LENGTH_SHORT).show()
+                            if (dev.isBigEyesTv) {
+                                bigEyesTvConnector.bindDevice(dev)
+                                val headers = prepareQueueForCandidate(candidate)
+                                if (executeDirectTvCast(candidate, headers)) {
+                                    return@launch
+                                }
+                            }
                             executeCast(candidate, dev.id)
                         } else {
                             Toast.makeText(this@MainActivity, "连接失败：无法解析 $text 的 DLNA 协议", Toast.LENGTH_LONG).show()

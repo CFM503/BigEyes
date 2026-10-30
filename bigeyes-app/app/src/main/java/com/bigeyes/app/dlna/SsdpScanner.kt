@@ -67,8 +67,16 @@ class SsdpScanner {
                 }
 
                 val friendlyName = getRootTagText("friendlyName") ?: "Unknown TV"
+                val modelName = getRootTagText("modelName") ?: ""
+                val manufacturer = getRootTagText("manufacturer") ?: ""
                 var udn = getRootTagText("UDN") ?: ""
                 if (udn.isEmpty()) udn = "uuid-$ip"
+
+                val isBigEyes = friendlyName.contains("BigEyes", ignoreCase = true) ||
+                                modelName.contains("BigEyes", ignoreCase = true) ||
+                                manufacturer.contains("BigEyes", ignoreCase = true) ||
+                                parsedUrl.port == 7000
+                val targetPort = if (parsedUrl.port > 0) parsedUrl.port else 7000
 
                 var avControlUrl: String? = null
                 var renderingControlUrl: String? = null
@@ -92,7 +100,9 @@ class SsdpScanner {
                     ip = ip,
                     locationUrl = locationUrl,
                     avTransportControlUrl = avControlUrl,
-                    renderingControlUrl = renderingControlUrl
+                    renderingControlUrl = renderingControlUrl,
+                    isBigEyesTv = isBigEyes,
+                    apiPort = targetPort
                 )
             } catch (e: Exception) {
                 System.err.println("Error parsing XML from $locationUrl: ${e.message}")
@@ -214,6 +224,8 @@ class SsdpScanner {
                 candidateUrls.add("http://$trimmed/description.xml")
                 candidateUrls.add("http://$trimmed/rootDesc.xml")
             } else {
+                candidateUrls.add("http://$trimmed:7000/description.xml")
+                candidateUrls.add("http://$trimmed:7000/")
                 candidateUrls.add("http://$trimmed:1700/")
                 candidateUrls.add("http://$trimmed:1498/")
                 candidateUrls.add("http://$trimmed:8080/description.xml")

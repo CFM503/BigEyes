@@ -34,6 +34,7 @@ data class StreamSession(
     val title: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val isMaster: Boolean = false,
+    val isDirectMedia: Boolean = false,
     var variants: List<VariantItem> = emptyList(),
     var selectedVariantIndex: Int = 0,
     var segments: List<SegmentItem> = emptyList(),
@@ -49,7 +50,9 @@ data class DlnaDevice(
     val avTransportControlUrl: String? = null,
     val renderingControlUrl: String? = null,
     var selected: Boolean = false,
-    var lastSeen: Long = System.currentTimeMillis()
+    var lastSeen: Long = System.currentTimeMillis(),
+    val isBigEyesTv: Boolean = false,
+    val apiPort: Int = 7000
 )
 
 data class CastStatus(

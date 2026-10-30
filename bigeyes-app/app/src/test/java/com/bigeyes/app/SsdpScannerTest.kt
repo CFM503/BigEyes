@@ -138,4 +138,34 @@ class SsdpScannerTest {
         assertEquals("http://192.168.68.236:1700/AVTransport/59928482-eb55-6226-d1a4-45484596f792/control.xml", device?.avTransportControlUrl)
         assertEquals("http://192.168.68.236:1700/RenderingControl/59928482-eb55-6226-d1a4-45484596f792/control.xml", device?.renderingControlUrl)
     }
+
+    @Test
+    fun testBigEyesTvXmlParsing() {
+        val bigEyesXml = """<?xml version="1.0" encoding="utf-8"?>
+            <root xmlns="urn:schemas-upnp-org:device-1-0">
+                <device>
+                    <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+                    <friendlyName>BigEyes TV (Living Room)</friendlyName>
+                    <manufacturer>BigEyes Team</manufacturer>
+                    <modelName>BigEyesTV</modelName>
+                    <UDN>uuid:bigeyes-tv-living-room</UDN>
+                    <serviceList>
+                        <service>
+                            <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+                            <controlURL>/upnp/control/AVTransport</controlURL>
+                        </service>
+                    </serviceList>
+                </device>
+            </root>
+        """.trimIndent()
+
+        val locationUrl = "http://192.168.1.188:7000/description.xml"
+        val device = SsdpScanner.parseDeviceXml(bigEyesXml, locationUrl)
+
+        assertNotNull(device)
+        assertEquals("BigEyes TV (Living Room)", device?.name)
+        assertEquals("192.168.1.188", device?.ip)
+        assertTrue(device?.isBigEyesTv == true)
+        assertEquals(7000, device?.apiPort)
+    }
 }

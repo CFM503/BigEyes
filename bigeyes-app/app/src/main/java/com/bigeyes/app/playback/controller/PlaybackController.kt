@@ -534,6 +534,12 @@ class PlaybackController(
         _session.value = _session.value.copy(positionMs = positionMs)
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        if (isPlayingOnBigEyesTv) {
+            tvConnector.setPlaybackSpeed(speed)
+        }
+    }
+
     fun stop() {
         countdownJob?.cancel()
         if (isPlayingOnBigEyesTv) {
@@ -595,7 +601,13 @@ class PlaybackController(
         when (state) {
             PlaybackIntentContract.STATE_PLAYING -> applyTvPlayingState(true)
             PlaybackIntentContract.STATE_PAUSED -> applyTvPlayingState(false)
-            PlaybackIntentContract.STATE_COMPLETED -> onPlaybackCompleted()
+            PlaybackIntentContract.STATE_COMPLETED -> {
+                // When TV owns the queue, BigEyesTV autonomously advances to the next episode.
+                // The phone mirrors the new episode via mirrorTvEpisode() without double-advancing.
+                if (!tvOwnsQueue) {
+                    onPlaybackCompleted()
+                }
+            }
             PlaybackIntentContract.STATE_STOPPED -> {
                 tvOwnsQueue = false
                 isPlayingOnBigEyesTv = false
