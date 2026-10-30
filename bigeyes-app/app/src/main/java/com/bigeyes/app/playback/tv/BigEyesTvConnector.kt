@@ -292,7 +292,7 @@ class BigEyesTvConnector(private val context: Context) {
                             val body = resp.body?.string()
                             if (!body.isNullOrBlank()) {
                                 val json = JSONObject(body)
-                                val state = json.optString("state", PlaybackIntentContract.STATE_IDLE)
+                                val state = json.optString("state", PlaybackIntentContract.STATE_STOPPED)
                                 val seriesId = if (json.has("seriesId") && !json.isNull("seriesId")) json.optString("seriesId") else null
                                 val epIndex = json.optInt("episodeIndex", 0)
                                 val posMs = json.optLong("currentPositionMs", 0L)
