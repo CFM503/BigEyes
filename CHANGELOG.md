@@ -1,5 +1,18 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.2.1] - 2026-10-31 (手机与TV全量剧集互通联动、全量选集与上下集闭环、伴侣参数对齐)
+
+### 🚀 选集与上下集全链路互通 (P0)
+* **全量剧集队列下发 (Queue Handover 强化)**：重构 `PlaybackController.buildTvQueue`，解除历史逻辑中“必须所有剧集都已完成嗅探才下发队列”的硬编码限制，投屏时将全剧集元数据（集数、标题、索引）完整移交给 BigEyesTV，使电视端能够正常展示“选集”列表以及“上一集/下一集”按钮；
+* **大屏切集双向自动嗅探**：`PlaybackController.mirrorTvEpisode` 监听大屏状态，当电视端遥控器选集或自动连播切到尚未嗅探直链的剧集时，手机端自动发起嗅探解析并即时将最新直链通过伴侣通道推送到电视端，实现“电视端无感换集、手机端后台无缝解析”；
+* **伴侣协议参数双向对齐**：`BigEyesTvConnector.playEpisode` 同时发送 `index` 与 `episodeIndex` 字段，确保与 BigEyesTV 接收端完全匹配兼容；
+* **投屏状态锁定优化**：`resolveCastTarget` 在已处于 BigEyesTV 投屏时自动维持投屏状态，防止因剧集重新解析导致意外掉回本地播放。
+
+### 🧪 工程与版本
+* 版本号升级：`versionCode 33 / versionName 2.2.1`。
+
+---
+
 ## [v2.2.0] - 2026-10-30 (BigEyes LAN Companion 伴侣协议 v1.0 与端到端联动体系构建)
 
 ### 🚀 伴侣跨屏投屏体系 (P0)

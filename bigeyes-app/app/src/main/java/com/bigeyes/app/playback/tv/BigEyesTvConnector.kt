@@ -426,6 +426,7 @@ class BigEyesTvConnector(private val context: Context) {
             val payload = JSONObject().apply {
                 put("action", "playEpisode")
                 put("index", index)
+                put("episodeIndex", index)
             }
             scope.launch { sendNetworkControl(ip, targetTvPort, payload) }
             return true

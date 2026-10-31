@@ -148,7 +148,7 @@ class PlaybackController(
     fun peekResumePositionMs(): Long = pendingResumePositionMs
 
     /** Queue handed over to BigEyesTV only when every episode still carries a fresh URL. */
-    fun buildQueueForTvHandover(): List<Episode>? = buildFullyResolvedQueue()
+    fun buildQueueForTvHandover(): List<Episode>? = buildTvQueue()
 
     fun playEpisode(index: Int, useBigEyesTv: Boolean? = null) {
         countdownJob?.cancel()
@@ -173,7 +173,7 @@ class PlaybackController(
     private fun resolveCastTarget(): Boolean {
         val override = bigEyesTvOverride
         bigEyesTvOverride = null
-        val prefer = override ?: AppPreferences.isPreferBigEyesTv(context)
+        val prefer = override ?: (isPlayingOnBigEyesTv || AppPreferences.isPreferBigEyesTv(context))
         return prefer && tvConnector.isDirectCastSupported()
     }
 
@@ -270,7 +270,7 @@ class PlaybackController(
         tvOwnsQueue = false
 
         if (isPlayingOnBigEyesTv) {
-            val tvQueue = buildFullyResolvedQueue()
+            val tvQueue = buildTvQueue()
             val tvItem = if (tvQueue != null && current.episodeIndex != queue.currentIndex) {
                 item.copy(episode = current.copy(episodeIndex = queue.currentIndex))
             } else {
@@ -301,15 +301,21 @@ class PlaybackController(
     }
 
     /**
-     * Returns the whole queue only when every episode carries a still fresh resolved URL,
-     * so BigEyesTV can auto-advance without asking the phone to re-resolve expired streams.
-     * Episode indices are normalized to queue positions (that is what the TV reports back).
+     * Builds the entire episode queue for BigEyesTV handover.
+     * Includes all episodes metadata so TV can render full episode selector and previous/next buttons.
+     * The active episode carries the resolved playUrl, while yet-unresolved episodes retain blank/cached URLs.
      */
-    private fun buildFullyResolvedQueue(): List<Episode>? {
+    fun buildTvQueue(): List<Episode>? {
         val items = queue.items
         if (items.size <= 1) return null
-        if (!items.all { it.hasValidPlayUrl() }) return null
-        return items.mapIndexed { index, episode -> episode.copy(episodeIndex = index) }
+        return items.mapIndexed { index, episode ->
+            episode.copy(
+                episodeIndex = index,
+                playUrl = if (index == queue.currentIndex && episode.playUrl.isNullOrBlank()) {
+                    (_session.value.playbackState as? PlaybackState.Playing)?.item?.playUrl ?: episode.playUrl
+                } else episode.playUrl
+            )
+        }
     }
 
     /**
@@ -679,6 +685,12 @@ class PlaybackController(
             durationMs = durMs
         )
         Log.i(TAG, "Mirrored BigEyesTV episode switch to index $index (${episode.displayTitle})")
+
+        // If target episode does not have a resolved stream URL yet, trigger resolution & push to TV
+        if (item == null || !episode.hasValidPlayUrl()) {
+            Log.i(TAG, "Target episode $index has no resolved playUrl, triggering sniffing/resolution for TV...")
+            resolveAndStartPlayback(episode)
+        }
     }
 
     fun release() {
