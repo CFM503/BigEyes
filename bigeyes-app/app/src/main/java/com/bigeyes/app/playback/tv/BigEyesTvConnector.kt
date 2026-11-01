@@ -307,6 +307,7 @@ class BigEyesTvConnector(private val context: Context) {
                         } else {
                             consecutiveFailures++
                         }
+                        Unit
                     }
                 } catch (e: Exception) {
                     consecutiveFailures++

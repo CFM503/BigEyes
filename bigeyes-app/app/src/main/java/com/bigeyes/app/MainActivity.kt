@@ -127,6 +127,9 @@ class MainActivity : AppCompatActivity() {
     private var fallbackDlnaManager: DlnaDeviceManager? = null
     private var currentCandidates: List<VideoCandidate> = emptyList()
 
+    private var isControlBarDismissedByUser: Boolean = false
+    private var resolverWebView: WebView? = null
+
     // Fullscreen handling
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
@@ -156,7 +159,7 @@ class MainActivity : AppCompatActivity() {
             settings.userAgentString = webView.settings.userAgentString
             webViewClient = SnifferWebViewClient()
             resolverWebView = this
-            binding.root.addView(this, android.view.ViewGroup.LayoutParams(1, 1))
+            webViewContainer.addView(this, android.view.ViewGroup.LayoutParams(1, 1))
         }
     }
 
@@ -1383,6 +1386,16 @@ class MainActivity : AppCompatActivity() {
         fallbackDlnaManager?.release()
         if (::playbackController.isInitialized) {
             playbackController.release()
+        }
+        try {
+            resolverWebView?.let { rwv ->
+                rwv.stopLoading()
+                (rwv.parent as? ViewGroup)?.removeView(rwv)
+                rwv.destroy()
+            }
+            resolverWebView = null
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error destroying resolverWebView: ${e.message}")
         }
         try {
             CookieManager.getInstance().flush()
