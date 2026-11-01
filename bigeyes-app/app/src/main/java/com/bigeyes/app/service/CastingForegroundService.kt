@@ -342,11 +342,30 @@ class CastingForegroundService : Service() {
                     } else if (state.equals("STOPPED", ignoreCase = true) && hasStartedPlaying) {
                         consecutiveStoppedCount++
                         if (consecutiveStoppedCount >= 2) {
-                            Log.i(TAG, "Playback naturally ended on TV. Requesting auto-advance to next episode.")
+                            // Check whether playback position reached tail of stream before treating as natural completion
+                            var isNaturalCompletion = true
+                            try {
+                                val posInfo = dlnaManager.controller.getPositionInfo(ctrlUrl)
+                                val relTimeStr = posInfo["rel_time"] ?: ""
+                                val durStr = posInfo["track_duration"] ?: ""
+                                if (relTimeStr.isNotBlank() && durStr.isNotBlank()) {
+                                    val posSec = parseTimeStringToSeconds(relTimeStr)
+                                    val durSec = parseTimeStringToSeconds(durStr)
+                                    if (durSec > 30 && posSec < durSec - 20) {
+                                        // Stopped by user remote midway, not natural completion
+                                        isNaturalCompletion = false
+                                        Log.i(TAG, "DLNA stream stopped prematurely at $posSec/$durSec sec. Not auto-advancing.")
+                                    }
+                                }
+                            } catch (_: Exception) {}
+
                             hasStartedPlaying = false
                             consecutiveStoppedCount = 0
-                            withContext(Dispatchers.Main) {
-                                onAutoNextEpisodeListener?.invoke()
+                            if (isNaturalCompletion) {
+                                Log.i(TAG, "Playback naturally ended on TV. Requesting auto-advance to next episode.")
+                                withContext(Dispatchers.Main) {
+                                    onAutoNextEpisodeListener?.invoke()
+                                }
                             }
                         }
                     }
@@ -405,6 +424,19 @@ class CastingForegroundService : Service() {
     }
 
     /** AVTransport RelTime/AbsTime use absolute `HH:MM:SS`. */
+    private fun parseTimeStringToSeconds(timeStr: String): Int {
+        val parts = timeStr.split(":")
+        return try {
+            when (parts.size) {
+                3 -> parts[0].toInt() * 3600 + parts[1].toInt() * 60 + parts[2].substringBefore(".").toInt()
+                2 -> parts[0].toInt() * 60 + parts[1].substringBefore(".").toInt()
+                else -> 0
+            }
+        } catch (_: Exception) {
+            0
+        }
+    }
+
     private fun formatAvTransportTime(positionMs: Long): String {
         val totalSeconds = (positionMs.coerceAtLeast(0L) / 1000L).toInt()
         return String.format(

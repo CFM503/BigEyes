@@ -147,4 +147,20 @@ class EpisodeQueueTest {
         queue.clear()
         assertEquals(2, callCount)
     }
+
+    @Test
+    fun testMergeEpisodesPreservesExistingUrlsAndAppendsNew() {
+        val ep1 = Episode(id = "ep_1", seriesId = "s1", seriesTitle = "S1", episodeNumber = 1, episodeTitle = "E1", episodeIndex = 0, playUrl = "http://play/1")
+        val ep2 = Episode(id = "ep_2", seriesId = "s1", seriesTitle = "S1", episodeNumber = 2, episodeTitle = "E2", episodeIndex = 1, playUrl = null)
+        queue.setQueue(listOf(ep1, ep2), 0)
+
+        val newEp2 = Episode(id = "ep_2", seriesId = "s1", seriesTitle = "S1", episodeNumber = 2, episodeTitle = "E2", episodeIndex = 1, playUrl = "http://play/2")
+        val newEp3 = Episode(id = "ep_3", seriesId = "s1", seriesTitle = "S1", episodeNumber = 3, episodeTitle = "E3", episodeIndex = 2, playUrl = "http://play/3")
+
+        queue.mergeEpisodes(listOf(newEp2, newEp3))
+        assertEquals(3, queue.size)
+        assertEquals("http://play/1", queue.items[0].playUrl)
+        assertEquals("http://play/2", queue.items[1].playUrl)
+        assertEquals("http://play/3", queue.items[2].playUrl)
+    }
 }

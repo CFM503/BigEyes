@@ -54,9 +54,9 @@ class BigEyesTvConnector(private val context: Context) {
         private set
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .writeTimeout(4, TimeUnit.SECONDS)
+        .connectTimeout(2500, TimeUnit.MILLISECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
+        .writeTimeout(3, TimeUnit.SECONDS)
         .build()
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -285,10 +285,12 @@ class BigEyesTvConnector(private val context: Context) {
             val request = Request.Builder().url(statusUrl).build()
             Log.d(TAG, "Starting BigEyesTV companion status polling at $statusUrl")
 
+            var consecutiveFailures = 0
             while (isActive) {
                 try {
                     httpClient.newCall(request).execute().use { resp ->
                         if (resp.isSuccessful) {
+                            consecutiveFailures = 0
                             val body = resp.body?.string()
                             if (!body.isNullOrBlank()) {
                                 val json = JSONObject(body)
@@ -302,10 +304,20 @@ class BigEyesTvConnector(private val context: Context) {
                                     onTvStatusUpdateListener?.invoke(state, seriesId, epIndex, posMs, durMs)
                                 }
                             }
+                        } else {
+                            consecutiveFailures++
                         }
                     }
                 } catch (e: Exception) {
-                    Log.d(TAG, "Companion status poll tick: ${e.message}")
+                    consecutiveFailures++
+                    Log.d(TAG, "Companion status poll tick: ${e.message} (consecutive: $consecutiveFailures)")
+                    if (consecutiveFailures >= 5) {
+                        Log.w(TAG, "Lost connection to BigEyesTV after $consecutiveFailures consecutive poll failures")
+                        withContext(Dispatchers.Main) {
+                            onTvStatusUpdateListener?.invoke(PlaybackIntentContract.STATE_ERROR, null, 0, 0L, 0L)
+                        }
+                        break
+                    }
                 }
                 delay(1000L)
             }

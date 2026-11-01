@@ -48,7 +48,8 @@ class PlaybackController(
     val countdownSeconds: StateFlow<Int> = _countdownSeconds.asStateFlow()
 
     private var countdownJob: Job? = null
-    private var isPlayingOnBigEyesTv: Boolean = false
+    private var isPlayingOnBigEyesTv: Boolean = false
+    private var hasSeenActiveTvState: Boolean = false
 
     /** True while BigEyesTV owns a fully resolved queue and advances episodes on its own. */
     private var tvOwnsQueue: Boolean = false
@@ -88,6 +89,15 @@ class PlaybackController(
     fun setAutoPlayNext(enabled: Boolean) {
         AppPreferences.setAutoPlayNext(context, enabled)
         _session.value = _session.value.copy(autoPlayNext = enabled)
+    }
+
+    fun mergeQueueEpisodes(newEpisodes: List<Episode>) {
+        queue.mergeEpisodes(newEpisodes)
+        _session.value = _session.value.copy(
+            episodeList = queue.items,
+            currentIndex = queue.currentIndex,
+            currentEpisode = queue.currentEpisode
+        )
     }
 
     fun loadQueue(episodes: List<Episode>, initialIndex: Int = 0) {
@@ -322,11 +332,12 @@ class PlaybackController(
      * Entry point used when the user casts a raw sniffed candidate directly to BigEyesTV
      * (投屏按钮直连分支). Mirrors what [dispatchPlayback] would do for an episode playback.
      */
-    fun onTvDirectCastStarted(item: PlaybackItem, startPositionMs: Long? = null) {
+    fun onTvDirectCastStarted(item: PlaybackItem, startPositionMs: Long? = null, queueHandedOver: Boolean = false) {
         countdownJob?.cancel()
         completionGuard.reset()
+        hasSeenActiveTvState = false
         isPlayingOnBigEyesTv = true
-        tvOwnsQueue = false
+        tvOwnsQueue = queueHandedOver
 
         val positionMs = startPositionMs ?: peekResumePositionMs()
         consumeResumePosition()
@@ -605,8 +616,14 @@ class PlaybackController(
         }
 
         when (state) {
-            PlaybackIntentContract.STATE_PLAYING -> applyTvPlayingState(true)
-            PlaybackIntentContract.STATE_PAUSED -> applyTvPlayingState(false)
+            PlaybackIntentContract.STATE_PLAYING -> {
+                hasSeenActiveTvState = true
+                applyTvPlayingState(true)
+            }
+            PlaybackIntentContract.STATE_PAUSED -> {
+                hasSeenActiveTvState = true
+                applyTvPlayingState(false)
+            }
             PlaybackIntentContract.STATE_COMPLETED -> {
                 // When TV owns the queue, BigEyesTV autonomously advances to the next episode.
                 // The phone mirrors the new episode via mirrorTvEpisode() without double-advancing.
@@ -615,8 +632,13 @@ class PlaybackController(
                 }
             }
             PlaybackIntentContract.STATE_STOPPED -> {
+                if (!hasSeenActiveTvState) {
+                    Log.d(TAG, "Ignoring initial transient TV STOPPED state during launch grace period")
+                    return
+                }
                 tvOwnsQueue = false
                 isPlayingOnBigEyesTv = false
+                hasSeenActiveTvState = false
                 countdownJob?.cancel()
                 _session.value = _session.value.copy(
                     playbackState = PlaybackState.Idle,

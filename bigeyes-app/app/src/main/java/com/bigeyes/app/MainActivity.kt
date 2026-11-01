@@ -147,6 +147,19 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
+    private fun getOrCreateResolverWebView(): WebView {
+        return resolverWebView ?: WebView(this).apply {
+            visibility = View.GONE
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            settings.userAgentString = webView.settings.userAgentString
+            webViewClient = SnifferWebViewClient()
+            resolverWebView = this
+            binding.root.addView(this, android.view.ViewGroup.LayoutParams(1, 1))
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         logMemoryUsage("onCreate_start")
@@ -210,7 +223,17 @@ class MainActivity : AppCompatActivity() {
         containerCountdown = findViewById(R.id.container_next_countdown)
 
         playbackControlBar = PlaybackControlBar(containerControl, lifecycleScope)
-        videoResolver = VideoResolver(webViewProvider = { webView }, scope = lifecycleScope)
+        videoResolver = VideoResolver(
+            webViewProvider = {
+                val state = playbackController.session.value.playbackState
+                if (playbackController.isCastingToBigEyesTv || state is PlaybackState.Playing || state is PlaybackState.Paused) {
+                    getOrCreateResolverWebView()
+                } else {
+                    webView
+                }
+            },
+            scope = lifecycleScope
+        )
         bigEyesTvConnector = BigEyesTvConnector(this)
 
         playbackController = PlaybackController(
@@ -286,7 +309,9 @@ class MainActivity : AppCompatActivity() {
                 when (val state = session.playbackState) {
                     is PlaybackState.Playing -> {
                         nextEpisodeCountdownView.hide()
-                        playbackControlBar.show(state.item.displayTitle, session.targetDevice)
+                        if (!isControlBarDismissedByUser) {
+                            playbackControlBar.show(state.item.displayTitle, session.targetDevice)
+                        }
                         playbackControlBar.setPlayPauseState(true)
                         playbackControlBar.updateQueueState(
                             currentIndex = session.currentIndex,
@@ -598,7 +623,20 @@ class MainActivity : AppCompatActivity() {
                     EpisodeExtractor.extractPlaylistFromPage(targetWebView) { playlist ->
                         if (playlist != null && playlist.episodes.size >= 2) {
                             Log.i(TAG, "Parsed playlist with ${playlist.episodes.size} episodes: ${playlist.seriesTitle}")
-                            playbackController.loadQueue(playlist.episodes, playlist.currentActiveIndex)
+                            val currentState = playbackController.session.value.playbackState
+                            val isCurrentlyCastingOrActive = currentState is PlaybackState.Playing ||
+                                    currentState is PlaybackState.Paused ||
+                                    currentState is PlaybackState.Resolving ||
+                                    currentState is PlaybackState.CountdownNext
+                            if (isCurrentlyCastingOrActive) {
+                                if (playbackController.session.value.seriesId == playlist.seriesId) {
+                                    playbackController.mergeQueueEpisodes(playlist.episodes)
+                                } else {
+                                    Log.d(TAG, "Active playback session in progress, postponing loadQueue for series ${playlist.seriesTitle}")
+                                }
+                            } else {
+                                playbackController.loadQueue(playlist.episodes, playlist.currentActiveIndex)
+                            }
                         }
                     }
                 }
@@ -937,6 +975,16 @@ class MainActivity : AppCompatActivity() {
         }
         lastCastClickTime = now
 
+        val curState = playbackController.session.value.playbackState
+        if ((curState is PlaybackState.Playing || curState is PlaybackState.Paused) && !playbackControlBar.isVisible) {
+            isControlBarDismissedByUser = false
+            playbackControlBar.show(
+                playbackController.session.value.currentEpisode?.displayTitle,
+                playbackController.session.value.targetDevice
+            )
+            return
+        }
+
         if (currentCandidates.isNotEmpty()) {
             showCandidatesOrCast(currentCandidates)
             return
@@ -1205,7 +1253,7 @@ class MainActivity : AppCompatActivity() {
             return false
         }
 
-        playbackController.onTvDirectCastStarted(item, startPositionMs)
+        playbackController.onTvDirectCastStarted(item, startPositionMs, queueHandedOver = (queue != null))
         Toast.makeText(this, "已直连投屏至 BigEyesTV", Toast.LENGTH_LONG).show()
         playbackControlBar.setRemoteProgressSource(true)
         playbackControlBar.show(item.displayTitle, "BigEyesTV")

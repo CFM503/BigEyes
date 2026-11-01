@@ -110,6 +110,28 @@ class EpisodeQueue {
     }
 
     @Synchronized
+    fun mergeEpisodes(newEpisodes: List<Episode>) {
+        var changed = false
+        for (newEp in newEpisodes) {
+            val idx = _items.indexOfFirst { it.episodeNumber == newEp.episodeNumber || it.id == newEp.id }
+            if (idx >= 0) {
+                val old = _items[idx]
+                if (old.playUrl.isNullOrBlank() && !newEp.playUrl.isNullOrBlank()) {
+                    _items[idx] = old.copy(playUrl = newEp.playUrl, playHeaders = newEp.playHeaders)
+                    changed = true
+                }
+            } else {
+                _items.add(newEp)
+                changed = true
+            }
+        }
+        if (changed) {
+            _items.sortBy { it.episodeNumber }
+            notifyChanged()
+        }
+    }
+
+    @Synchronized
     fun addOrUpdateEpisode(episode: Episode) {
         val existingIndex = _items.indexOfFirst {
             it.episodeNumber == episode.episodeNumber || it.id == episode.id

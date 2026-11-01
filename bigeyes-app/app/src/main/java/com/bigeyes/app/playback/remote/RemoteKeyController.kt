@@ -29,13 +29,17 @@ class RemoteKeyController(
 
         when (event.keyCode) {
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                playbackController.playNext()
-                return true
+                if (isPlaybackActive) {
+                    playbackController.playNext()
+                    return true
+                }
             }
 
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                playbackController.playPrevious()
-                return true
+                if (isPlaybackActive) {
+                    playbackController.playPrevious()
+                    return true
+                }
             }
 
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {

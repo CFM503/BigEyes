@@ -34,7 +34,8 @@ class PlaybackControlBar(
     var onPlayPauseClickListener: (() -> Unit)? = null
     var onRewindClickListener: (() -> Unit)? = null
     var onForwardClickListener: (() -> Unit)? = null
-    var onStopClickListener: (() -> Unit)? = null
+    var onStopClickListener: (() -> Unit)? = null
+    var onCloseClickListener: (() -> Unit)? = null
     var onSeekToListener: ((Long) -> Unit)? = null
 
     /**

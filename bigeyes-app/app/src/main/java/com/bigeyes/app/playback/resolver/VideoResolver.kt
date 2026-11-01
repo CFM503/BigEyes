@@ -61,18 +61,19 @@ class VideoResolver(
         try {
             val resolvedItem = withTimeout(RESOLVE_TIMEOUT_MS) {
                 val candidateDeferred = CompletableDeferred<VideoCandidate>()
+                val requestStartTime = System.currentTimeMillis()
 
                 val candidateListener: (List<VideoCandidate>) -> Unit = { candidates ->
-                    val latest = candidates.firstOrNull()
+                    val latest = candidates.firstOrNull { it.timestamp >= requestStartTime }
                     if (latest != null && !candidateDeferred.isCompleted) {
                         candidateDeferred.complete(latest)
                     }
                 }
 
+                CandidateManager.clear()
                 CandidateManager.addListener(candidateListener)
 
                 try {
-                    CandidateManager.clear()
                     if (wv.url != targetPageUrl) {
                         wv.loadUrl(targetPageUrl)
                     } else {
