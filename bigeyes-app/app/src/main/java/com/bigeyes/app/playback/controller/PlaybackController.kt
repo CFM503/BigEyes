@@ -64,6 +64,8 @@ class PlaybackController(
     private var pendingResumePositionMs: Long = 0L
 
     private var lastHistoryPersistAt = 0L
+    private var resumeFromHistoryNext: Boolean = true
+    private var resolvingMirrorIndex: Int = -1
 
     /** Read-only view of the active cast target, used by the UI to mirror BigEyesTV status. */
     val isCastingToBigEyesTv: Boolean
@@ -81,14 +83,17 @@ class PlaybackController(
             )
         }
 
-        tvConnector.onTvStatusUpdateListener = { state, _, epIndex, posMs, durMs ->
-            handleTvStatusUpdate(state, epIndex, posMs, durMs)
+        tvConnector.onTvStatusUpdateListener = { update ->
+            handleTvStatusUpdate(update)
         }
     }
 
     fun setAutoPlayNext(enabled: Boolean) {
         AppPreferences.setAutoPlayNext(context, enabled)
         _session.value = _session.value.copy(autoPlayNext = enabled)
+        if (isPlayingOnBigEyesTv) {
+            tvConnector.setAutoPlayNext(enabled)
+        }
     }
 
     fun mergeQueueEpisodes(newEpisodes: List<Episode>) {
@@ -106,6 +111,8 @@ class PlaybackController(
         val (resumeIndex, resumePositionMs) = resolveResumeTarget(episodes, initialIndex)
         resumeTargetIndex = resumeIndex
         pendingResumePositionMs = resumePositionMs
+        resumeFromHistoryNext = true
+        resolvingMirrorIndex = -1
         queue.setQueue(episodes, resumeIndex)
         val current = queue.currentEpisode
         _session.value = _session.value.copy(
@@ -166,10 +173,81 @@ class PlaybackController(
         if (index != resumeTargetIndex) {
             resumeTargetIndex = -1
             pendingResumePositionMs = 0L
+            resumeFromHistoryNext = false
         }
         val targetEpisode = queue.jumpTo(index) ?: return
         bigEyesTvOverride = useBigEyesTv
-        resolveAndStartPlayback(targetEpisode)
+        if (useBigEyesTv != false && isPlayingOnBigEyesTv && tvOwnsQueue) {
+            switchEpisodeOnBoundTv(targetEpisode, index)
+        } else {
+            resolveAndStartPlayback(targetEpisode)
+        }
+    }
+
+    /**
+     * Non-destructive episode switch when BigEyesTV already holds the active series queue.
+     */
+    private fun switchEpisodeOnBoundTv(episode: Episode, index: Int) {
+        if (episode.hasValidPlayUrl()) {
+            val item = PlaybackItem(
+                episode = episode.copy(episodeIndex = index),
+                playUrl = episode.playUrl!!,
+                headers = episode.playHeaders,
+                source = episode.sourceId,
+                index = index,
+                totalCount = queue.size.coerceAtLeast(1)
+            )
+            _session.value = _session.value.copy(
+                currentEpisode = episode,
+                currentIndex = index,
+                playbackState = PlaybackState.Buffering(item, 0L, episode.durationMs),
+                positionMs = 0L,
+                durationMs = episode.durationMs
+            )
+            if (tvConnector.playEpisode(index)) {
+                return
+            }
+        }
+        // Unresolved episode or playEpisode failed: resolve and push via updateEpisodeUrl
+        _session.value = _session.value.copy(
+            playbackState = PlaybackState.Resolving(episode),
+            currentEpisode = episode,
+            currentIndex = index
+        )
+        tvConnector.playEpisode(index)
+        scope.launch {
+            val result = videoResolver.resolveEpisodeStream(episode, queue.size)
+            result.fold(
+                onSuccess = { playbackItem ->
+                    queue.updateEpisodePlayUrl(index, playbackItem.playUrl, playbackItem.headers)
+                    val updatedEp = queue.items.getOrNull(index) ?: episode.copy(
+                        playUrl = playbackItem.playUrl,
+                        playHeaders = playbackItem.headers
+                    )
+                    val updatedItem = playbackItem.copy(episode = updatedEp, index = index)
+                    _session.value = _session.value.copy(
+                        currentEpisode = updatedEp,
+                        currentIndex = index,
+                        playbackState = PlaybackState.Buffering(updatedItem, 0L, updatedEp.durationMs),
+                        positionMs = 0L
+                    )
+                    tvConnector.updateEpisodeUrl(index, playbackItem.playUrl, playbackItem.headers, 0L) { ok ->
+                        if (!ok) {
+                            dispatchPlayback(updatedItem)
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    _session.value = _session.value.copy(
+                        playbackState = PlaybackState.Error(
+                            message = error.message ?: "剧集地址解析失败",
+                            canRetry = true,
+                            failedEpisode = episode
+                        )
+                    )
+                }
+            )
+        }
     }
 
     /**
@@ -190,6 +268,7 @@ class PlaybackController(
     fun playNext() {
         countdownJob?.cancel()
         clearPendingResume()
+        resumeFromHistoryNext = false
         if (!queue.hasNext) {
             Log.i(TAG, "Already at the last episode in queue")
             _session.value = _session.value.copy(
@@ -198,22 +277,36 @@ class PlaybackController(
             return
         }
         val nextEp = queue.advance() ?: return
-        resolveAndStartPlayback(nextEp)
+        if (isPlayingOnBigEyesTv && tvOwnsQueue) {
+            switchEpisodeOnBoundTv(nextEp, queue.currentIndex)
+        } else {
+            resolveAndStartPlayback(nextEp)
+        }
     }
 
     fun playPrevious() {
         countdownJob?.cancel()
         clearPendingResume()
+        resumeFromHistoryNext = false
         if (!queue.hasPrevious) {
             Log.i(TAG, "Already at the first episode in queue")
             return
         }
         val prevEp = queue.retreat() ?: return
-        resolveAndStartPlayback(prevEp)
+        if (isPlayingOnBigEyesTv && tvOwnsQueue) {
+            switchEpisodeOnBoundTv(prevEp, queue.currentIndex)
+        } else {
+            resolveAndStartPlayback(prevEp)
+        }
     }
 
     fun retryCurrentEpisode() {
         val current = queue.currentEpisode ?: return
+        resumeFromHistoryNext = false
+        if (isPlayingOnBigEyesTv && tvOwnsQueue && current.hasValidPlayUrl()) {
+            tvConnector.retry()
+            return
+        }
         resolveAndStartPlayback(current)
     }
 
@@ -276,6 +369,8 @@ class PlaybackController(
             )
         )
 
+        val shouldResumeFromHistory = resumeFromHistoryNext
+        resumeFromHistoryNext = true
         isPlayingOnBigEyesTv = resolveCastTarget()
         tvOwnsQueue = false
 
@@ -286,20 +381,24 @@ class PlaybackController(
             } else {
                 item
             }
-            val ok = tvConnector.startTvPlayback(
+            tvConnector.startTvPlayback(
                 item = tvItem,
                 autoPlayNext = _session.value.autoPlayNext,
                 startPositionMs = startPositionMs,
-                queue = tvQueue
-            )
-            if (ok) {
-                tvOwnsQueue = tvQueue != null
-                _session.value = _session.value.copy(targetDevice = "BigEyesTV")
-                Log.i(TAG, "Dispatched to BigEyesTV (tvOwnsQueue=$tvOwnsQueue)")
-                return
+                queue = tvQueue,
+                resumeFromHistory = shouldResumeFromHistory
+            ) { ok ->
+                if (ok) {
+                    tvOwnsQueue = tvQueue != null
+                    _session.value = _session.value.copy(targetDevice = "BigEyesTV")
+                    Log.i(TAG, "Dispatched to BigEyesTV (tvOwnsQueue=$tvOwnsQueue)")
+                } else {
+                    Log.w(TAG, "BigEyesTV launch failed, falling back to DLNA/Local")
+                    isPlayingOnBigEyesTv = false
+                    fallbackToCastOrLocal(item, startPositionMs)
+                }
             }
-            Log.w(TAG, "BigEyesTV launch failed, falling back to DLNA/Local")
-            isPlayingOnBigEyesTv = false
+            return
         }
 
         fallbackToCastOrLocal(item, startPositionMs)
@@ -552,9 +651,31 @@ class PlaybackController(
     }
 
     fun setPlaybackSpeed(speed: Float) {
+        _session.value = _session.value.copy(playbackSpeed = speed)
         if (isPlayingOnBigEyesTv) {
             tvConnector.setPlaybackSpeed(speed)
         }
+    }
+
+    /**
+     * Syncs external renderer play/pause changes (e.g. TV remote pausing a DLNA stream)
+     * into the phone session so togglePlayPause sends the matching command next.
+     */
+    fun syncExternalPlayPause(playing: Boolean) {
+        if (isPlayingOnBigEyesTv) return
+        val snapshot = _session.value
+        val item = (snapshot.playbackState as? PlaybackState.Playing)?.item
+            ?: (snapshot.playbackState as? PlaybackState.Paused)?.item
+            ?: (snapshot.playbackState as? PlaybackState.Buffering)?.item
+            ?: return
+        val currentlyPlaying = snapshot.playbackState is PlaybackState.Playing
+        if (currentlyPlaying == playing) return
+        val newState = if (playing) {
+            PlaybackState.Playing(item, snapshot.positionMs, snapshot.durationMs)
+        } else {
+            PlaybackState.Paused(item, snapshot.positionMs, snapshot.durationMs)
+        }
+        _session.value = snapshot.copy(playbackState = newState)
     }
 
     fun stop() {
@@ -607,15 +728,27 @@ class PlaybackController(
         )
     }
 
-    private fun handleTvStatusUpdate(state: String, epIndex: Int, posMs: Long, durMs: Long) {
-        // Mirror the episode BigEyesTV switched to (only meaningful when the TV owns the queue)
-        if (tvOwnsQueue && epIndex != queue.currentIndex && epIndex in queue.items.indices) {
-            mirrorTvEpisode(epIndex, posMs, durMs)
-        } else {
-            updateProgress(posMs, durMs)
+    private fun handleTvStatusUpdate(update: BigEyesTvConnector.TvStatusUpdate) {
+        if (!isPlayingOnBigEyesTv) return
+
+        // Sync speed & autoPlayNext reported by BigEyesTV
+        val syncedSpeed = if (update.speed > 0f) update.speed else _session.value.playbackSpeed
+        val syncedAutoPlay = update.autoPlayNext ?: _session.value.autoPlayNext
+        if (syncedSpeed != _session.value.playbackSpeed || syncedAutoPlay != _session.value.autoPlayNext) {
+            _session.value = _session.value.copy(
+                playbackSpeed = syncedSpeed,
+                autoPlayNext = syncedAutoPlay
+            )
         }
 
-        when (state) {
+        // Mirror the episode BigEyesTV switched to (only meaningful when the TV owns the queue)
+        if (tvOwnsQueue && update.episodeIndex != queue.currentIndex && update.episodeIndex in queue.items.indices) {
+            mirrorTvEpisode(update.episodeIndex, update.positionMs, update.durationMs)
+        } else {
+            updateProgress(update.positionMs, update.durationMs)
+        }
+
+        when (update.state) {
             PlaybackIntentContract.STATE_PLAYING -> {
                 hasSeenActiveTvState = true
                 applyTvPlayingState(true)
@@ -623,6 +756,16 @@ class PlaybackController(
             PlaybackIntentContract.STATE_PAUSED -> {
                 hasSeenActiveTvState = true
                 applyTvPlayingState(false)
+            }
+            PlaybackIntentContract.STATE_BUFFERING -> {
+                hasSeenActiveTvState = true
+                val snapshot = _session.value
+                val item = currentItemFromState(snapshot.playbackState) ?: buildFallbackItem(queue.currentEpisode)
+                if (item != null) {
+                    _session.value = snapshot.copy(
+                        playbackState = PlaybackState.Buffering(item, snapshot.positionMs, snapshot.durationMs)
+                    )
+                }
             }
             PlaybackIntentContract.STATE_COMPLETED -> {
                 // When TV owns the queue, BigEyesTV autonomously advances to the next episode.
@@ -639,6 +782,7 @@ class PlaybackController(
                 tvOwnsQueue = false
                 isPlayingOnBigEyesTv = false
                 hasSeenActiveTvState = false
+                resolvingMirrorIndex = -1
                 countdownJob?.cancel()
                 _session.value = _session.value.copy(
                     playbackState = PlaybackState.Idle,
@@ -648,7 +792,7 @@ class PlaybackController(
             PlaybackIntentContract.STATE_ERROR -> {
                 _session.value = _session.value.copy(
                     playbackState = PlaybackState.Error(
-                        message = "大屏播放出错，请重试",
+                        message = update.errorMessage ?: "大屏播放出错，请重试",
                         canRetry = true,
                         failedEpisode = queue.currentEpisode
                     )
@@ -658,12 +802,29 @@ class PlaybackController(
         }
     }
 
+    private fun currentItemFromState(state: PlaybackState): PlaybackItem? = when (state) {
+        is PlaybackState.Playing -> state.item
+        is PlaybackState.Paused -> state.item
+        is PlaybackState.Buffering -> state.item
+        else -> null
+    }
+
+    private fun buildFallbackItem(episode: Episode?): PlaybackItem? {
+        if (episode == null) return null
+        return PlaybackItem(
+            episode = episode,
+            playUrl = episode.playUrl ?: "",
+            headers = episode.playHeaders,
+            source = episode.sourceId,
+            index = queue.currentIndex,
+            totalCount = queue.size.coerceAtLeast(1)
+        )
+    }
+
     /** Keep the control bar play/pause state in sync with what the TV is actually doing. */
     private fun applyTvPlayingState(playing: Boolean) {
         val snapshot = _session.value
-        val item = (snapshot.playbackState as? PlaybackState.Playing)?.item
-            ?: (snapshot.playbackState as? PlaybackState.Paused)?.item
-            ?: return
+        val item = currentItemFromState(snapshot.playbackState) ?: buildFallbackItem(queue.currentEpisode) ?: return
 
         val newState = if (playing) {
             PlaybackState.Playing(item, snapshot.positionMs, snapshot.durationMs)
@@ -677,7 +838,7 @@ class PlaybackController(
     private fun mirrorTvEpisode(index: Int, posMs: Long, durMs: Long) {
         val episode = queue.jumpTo(index) ?: return
         val snapshot = _session.value
-        val item = episode.playUrl?.let { url ->
+        val item = episode.playUrl?.takeIf { it.isNotBlank() }?.let { url ->
             PlaybackItem(
                 episode = episode,
                 playUrl = url,
@@ -689,12 +850,12 @@ class PlaybackController(
         }
 
         val state = when {
-            item == null -> snapshot.playbackState
+            item == null -> PlaybackState.Resolving(episode)
             snapshot.playbackState is PlaybackState.Playing ->
                 PlaybackState.Playing(item, posMs, durMs)
             snapshot.playbackState is PlaybackState.Paused ->
                 PlaybackState.Paused(item, posMs, durMs)
-            else -> snapshot.playbackState
+            else -> PlaybackState.Buffering(item, posMs, durMs)
         }
 
         _session.value = snapshot.copy(
@@ -708,10 +869,40 @@ class PlaybackController(
         )
         Log.i(TAG, "Mirrored BigEyesTV episode switch to index $index (${episode.displayTitle})")
 
-        // If target episode does not have a resolved stream URL yet, trigger resolution & push to TV
+        // If target episode does not have a resolved stream URL yet, resolve and push non-destructively
         if (item == null || !episode.hasValidPlayUrl()) {
-            Log.i(TAG, "Target episode $index has no resolved playUrl, triggering sniffing/resolution for TV...")
-            resolveAndStartPlayback(episode)
+            if (resolvingMirrorIndex == index) return
+            resolvingMirrorIndex = index
+            Log.i(TAG, "Target episode $index has no resolved playUrl, resolving for updateEpisodeUrl...")
+            scope.launch {
+                try {
+                    val result = videoResolver.resolveEpisodeStream(episode, queue.size)
+                    result.fold(
+                        onSuccess = { resolvedItem ->
+                            queue.updateEpisodePlayUrl(index, resolvedItem.playUrl, resolvedItem.headers)
+                            tvConnector.updateEpisodeUrl(
+                                episodeIndex = index,
+                                playUrl = resolvedItem.playUrl,
+                                headers = resolvedItem.headers
+                            )
+                        },
+                        onFailure = { error ->
+                            Log.w(TAG, "Mirror resolution failed for episode $index: ${error.message}")
+                            _session.value = _session.value.copy(
+                                playbackState = PlaybackState.Error(
+                                    message = error.message ?: "下一集地址解析失败",
+                                    canRetry = true,
+                                    failedEpisode = episode
+                                )
+                            )
+                        }
+                    )
+                } finally {
+                    if (resolvingMirrorIndex == index) {
+                        resolvingMirrorIndex = -1
+                    }
+                }
+            }
         }
     }
 

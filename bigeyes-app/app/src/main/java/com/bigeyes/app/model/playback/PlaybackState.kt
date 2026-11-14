@@ -15,7 +15,8 @@ sealed class PlaybackState {
     ) : PlaybackState()
     data class Buffering(
         val item: PlaybackItem,
-        val positionMs: Long = 0L
+        val positionMs: Long = 0L,
+        val durationMs: Long = 0L
     ) : PlaybackState()
     data class CountdownNext(
         val nextEpisode: Episode,

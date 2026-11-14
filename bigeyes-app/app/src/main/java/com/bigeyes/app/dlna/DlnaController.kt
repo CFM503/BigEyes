@@ -1,6 +1,5 @@
 package com.bigeyes.app.dlna
 
-import android.text.TextUtils
 import android.util.Log
 import android.util.Xml
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +25,21 @@ class DlnaController {
         .readTimeout(6, TimeUnit.SECONDS)
         .build()
 
+    internal fun escapeXml(input: String): String {
+        val sb = StringBuilder(input.length + 16)
+        for (ch in input) {
+            when (ch) {
+                '&' -> sb.append("&amp;")
+                '<' -> sb.append("&lt;")
+                '>' -> sb.append("&gt;")
+                '"' -> sb.append("&quot;")
+                '\'' -> sb.append("&apos;")
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
+    }
+
     private suspend fun sendSoapAction(
         controlUrl: String,
         serviceType: String,
@@ -34,7 +48,7 @@ class DlnaController {
     ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         val argsXml = StringBuilder()
         for ((k, v) in arguments) {
-            argsXml.append("<$k>").append(TextUtils.htmlEncode(v)).append("</$k>")
+            argsXml.append("<$k>").append(escapeXml(v)).append("</$k>")
         }
 
         val soapBody = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
@@ -69,20 +83,39 @@ class DlnaController {
         }
     }
 
-    suspend fun setAvTransportUri(
-        controlUrl: String,
-        uri: String,
-        title: String = "BigEyes Video"
-    ): Boolean {
-        val escapedTitle = TextUtils.htmlEncode(title)
-        val didlMetadata = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
+    internal fun inferMimeType(uri: String): String {
+        val path = uri.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".m3u8") || path.endsWith(".m3u") -> "application/vnd.apple.mpegurl"
+            path.endsWith(".mp4") || path.endsWith(".m4v") -> "video/mp4"
+            path.endsWith(".mkv") -> "video/x-matroska"
+            path.endsWith(".flv") -> "video/x-flv"
+            path.endsWith(".webm") -> "video/webm"
+            path.endsWith(".ts") -> "video/mp2t"
+            else -> "video/*"
+        }
+    }
+
+    internal fun buildDidlMetadata(uri: String, title: String): String {
+        val escapedTitle = escapeXml(title)
+        val escapedUri = escapeXml(uri)
+        val mime = inferMimeType(uri)
+        return "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
                 "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
                 "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
                 "<item id=\"0\" parentID=\"-1\" restricted=\"1\">" +
                 "<dc:title>$escapedTitle</dc:title>" +
                 "<upnp:class>object.item.videoItem</upnp:class>" +
-                "<res protocolInfo=\"http-get:*:application/vnd.apple.mpegurl:*\">$uri</res>" +
+                "<res protocolInfo=\"http-get:*:$mime:*\">$escapedUri</res>" +
                 "</item></DIDL-Lite>"
+    }
+
+    suspend fun setAvTransportUri(
+        controlUrl: String,
+        uri: String,
+        title: String = "BigEyes Video"
+    ): Boolean {
+        val didlMetadata = buildDidlMetadata(uri, title)
 
         val args = mapOf(
             "InstanceID" to "0",
@@ -98,15 +131,7 @@ class DlnaController {
         uri: String,
         title: String = "BigEyes Video Next"
     ): Boolean {
-        val escapedTitle = TextUtils.htmlEncode(title)
-        val didlMetadata = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" " +
-                "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
-                "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">" +
-                "<item id=\"0\" parentID=\"-1\" restricted=\"1\">" +
-                "<dc:title>$escapedTitle</dc:title>" +
-                "<upnp:class>object.item.videoItem</upnp:class>" +
-                "<res protocolInfo=\"http-get:*:application/vnd.apple.mpegurl:*\">$uri</res>" +
-                "</item></DIDL-Lite>"
+        val didlMetadata = buildDidlMetadata(uri, title)
 
         val args = mapOf(
             "InstanceID" to "0",

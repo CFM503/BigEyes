@@ -60,9 +60,11 @@ object BookmarkDialog {
 
                     val isHome = bm.url.trimEnd('/') == currentHomeUrl
                     if (isHome) {
+                        ivIcon.setColorFilter(activity.getColor(R.color.brand_primary))
                         btnSetHome.setColorFilter(activity.getColor(R.color.brand_primary))
                     } else {
-                        btnSetHome.setColorFilter(0xFF888888.toInt())
+                        ivIcon.setColorFilter(activity.getColor(R.color.text_secondary))
+                        btnSetHome.setColorFilter(activity.getColor(R.color.text_secondary))
                     }
 
                     // Click to navigate

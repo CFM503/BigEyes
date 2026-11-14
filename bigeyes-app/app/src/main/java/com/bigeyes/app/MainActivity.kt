@@ -10,7 +10,10 @@ import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
+import java.net.URLEncoder
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -99,6 +102,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnForward: ImageButton
     private lateinit var btnRefresh: ImageButton
     private lateinit var btnBookmark: ImageButton
+    private lateinit var btnClearUrl: ImageButton
     private lateinit var btnCast: Button
     private lateinit var tvBadgeCount: TextView
     private lateinit var btnSettings: ImageButton
@@ -129,6 +133,9 @@ class MainActivity : AppCompatActivity() {
 
     private var isControlBarDismissedByUser: Boolean = false
     private var resolverWebView: WebView? = null
+    private var candidateListener: ((List<VideoCandidate>) -> Unit)? = null
+    private var pendingExtractedPlaylist: com.bigeyes.app.playback.resolver.ExtractedPlaylist? = null
+    private var activeCastCandidate: VideoCandidate? = null
 
     // Fullscreen handling
     private var customView: View? = null
@@ -217,6 +224,7 @@ class MainActivity : AppCompatActivity() {
         btnForward = findViewById(R.id.btn_nav_forward)
         btnRefresh = findViewById(R.id.btn_refresh)
         btnBookmark = findViewById(R.id.btn_bookmark)
+        btnClearUrl = findViewById(R.id.btn_clear_url)
         btnCast = findViewById(R.id.btn_cast)
         tvBadgeCount = findViewById(R.id.tv_badge_count)
         btnSettings = findViewById(R.id.btn_settings)
@@ -237,7 +245,9 @@ class MainActivity : AppCompatActivity() {
             },
             scope = lifecycleScope
         )
-        bigEyesTvConnector = BigEyesTvConnector(this)
+        bigEyesTvConnector = BigEyesTvConnector(this).apply {
+            validateSavedDevice()
+        }
 
         playbackController = PlaybackController(
             context = this,
@@ -309,12 +319,30 @@ class MainActivity : AppCompatActivity() {
             playbackController.session.collect { session ->
                 val tvCasting = playbackController.isCastingToBigEyesTv
                 playbackControlBar.setRemoteProgressSource(tvCasting)
+                playbackControlBar.setPlaybackSpeed(session.playbackSpeed)
                 when (val state = session.playbackState) {
+                    is PlaybackState.Buffering -> {
+                        nextEpisodeCountdownView.hide()
+                        if (!isControlBarDismissedByUser) {
+                            playbackControlBar.show(state.item.displayTitle, session.targetDevice)
+                        }
+                        playbackControlBar.setBufferingState(true)
+                        playbackControlBar.updateQueueState(
+                            currentIndex = session.currentIndex,
+                            totalEpisodes = session.episodeList.size,
+                            hasPrev = playbackController.queue.hasPrevious,
+                            hasNxt = playbackController.queue.hasNext
+                        )
+                        if (tvCasting) {
+                            playbackControlBar.setProgress(session.positionMs, session.durationMs)
+                        }
+                    }
                     is PlaybackState.Playing -> {
                         nextEpisodeCountdownView.hide()
                         if (!isControlBarDismissedByUser) {
                             playbackControlBar.show(state.item.displayTitle, session.targetDevice)
                         }
+                        playbackControlBar.setBufferingState(false)
                         playbackControlBar.setPlayPauseState(true)
                         playbackControlBar.updateQueueState(
                             currentIndex = session.currentIndex,
@@ -327,6 +355,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     is PlaybackState.Paused -> {
+                        playbackControlBar.setBufferingState(false)
                         playbackControlBar.setPlayPauseState(false)
                         if (tvCasting) {
                             playbackControlBar.setProgress(session.positionMs, session.durationMs)
@@ -343,11 +372,17 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     is PlaybackState.Error -> {
+                        playbackControlBar.setBufferingState(false)
                         nextEpisodeCountdownView.hide()
                         Toast.makeText(this@MainActivity, "播放出错: ${state.message}", Toast.LENGTH_SHORT).show()
                     }
                     is PlaybackState.Idle -> {
+                        playbackControlBar.setBufferingState(false)
                         nextEpisodeCountdownView.hide()
+                        pendingExtractedPlaylist?.let { pending ->
+                            pendingExtractedPlaylist = null
+                            playbackController.loadQueue(pending.episodes, pending.currentActiveIndex)
+                        }
                     }
                     else -> {}
                 }
@@ -388,11 +423,41 @@ class MainActivity : AppCompatActivity() {
         playbackControlBar.onSelectEpisodeListener = {
             showEpisodeSelectDialog()
         }
+        playbackControlBar.onCloseClickListener = {
+            isControlBarDismissedByUser = true
+        }
+        playbackControlBar.onSpeedSelectedListener = { speed ->
+            playbackController.setPlaybackSpeed(speed)
+        }
+        playbackControlBar.onSwitchDeviceListener = {
+            val candidate = activeCastCandidate ?: buildCandidateFromCurrentSession()
+            if (candidate != null) {
+                showDeviceSelectOrCast(candidate, forceDevicePicker = true)
+            } else {
+                Toast.makeText(this, "当前没有可切换设备的视频", Toast.LENGTH_SHORT).show()
+            }
+        }
+        playbackControlBar.onExternalPlayPauseChanged = { playing ->
+            playbackController.syncExternalPlayPause(playing)
+        }
         // Keep PlaybackController's playhead in sync with the DLNA renderer so that
         // relative transport commands (±15s) start from the real position.
         playbackControlBar.onRemoteProgress = { positionMs, durationMs ->
             playbackController.updateProgress(positionMs, durationMs)
         }
+    }
+
+    private fun buildCandidateFromCurrentSession(): VideoCandidate? {
+        val session = playbackController.session.value
+        val ep = session.currentEpisode ?: return null
+        val url = ep.playUrl?.takeIf { it.isNotBlank() } ?: return null
+        return VideoCandidate(
+            url = url,
+            referer = ep.playHeaders["Referer"] ?: ep.pageUrl,
+            userAgent = ep.playHeaders["User-Agent"],
+            cookie = ep.playHeaders["Cookie"],
+            title = ep.displayTitle
+        )
     }
 
     private fun showEpisodeSelectDialog() {
@@ -413,16 +478,33 @@ class MainActivity : AppCompatActivity() {
 
     private fun castPlaybackItem(item: PlaybackItem, startPositionMs: Long, onResult: (Boolean, String?) -> Unit) {
         val service = CastingForegroundService.instance
-        if (service == null) {
-            startCastingService()
-            onResult(false, "本地投屏服务正在初始化，请稍候重试")
+        if (service != null) {
+            service.castPlaybackItem(item, null, startPositionMs) { success, deviceName ->
+                if (success) {
+                    playbackController.onDlnaCastStarted(item, deviceName, startPositionMs)
+                }
+                onResult(success, deviceName)
+            }
             return
         }
-        service.castPlaybackItem(item, null, startPositionMs) { success, deviceName ->
-            if (success) {
-                playbackController.onDlnaCastStarted(item, deviceName, startPositionMs)
+        startCastingService()
+        lifecycleScope.launch {
+            var waited = 0
+            while (CastingForegroundService.instance == null && waited < 2500) {
+                kotlinx.coroutines.delay(100)
+                waited += 100
             }
-            onResult(success, deviceName)
+            val startedService = CastingForegroundService.instance
+            if (startedService == null) {
+                onResult(false, "本地投屏服务初始化超时，请重试")
+                return@launch
+            }
+            startedService.castPlaybackItem(item, null, startPositionMs) { success, deviceName ->
+                if (success) {
+                    playbackController.onDlnaCastStarted(item, deviceName, startPositionMs)
+                }
+                onResult(success, deviceName)
+            }
         }
     }
 
@@ -456,29 +538,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupWindowInsets() {
+        val topBarBaseHeight = dpToPx(52)
+        val bottomBarBaseHeight = dpToPx(48)
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
+            val topLp = topBar.layoutParams
+            val bottomLp = bottomBar.layoutParams
             if (customView == null) {
                 val statusInsets = insets.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
                 val navInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+                val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
+                val bottomInset = maxOf(navInsets.bottom, imeInsets.bottom)
 
+                topLp.height = topBarBaseHeight + statusInsets.top
+                topBar.layoutParams = topLp
                 topBar.setPadding(
                     topBar.paddingLeft,
                     statusInsets.top,
                     topBar.paddingRight,
                     topBar.paddingBottom
                 )
+
+                bottomLp.height = bottomBarBaseHeight + bottomInset
+                bottomBar.layoutParams = bottomLp
                 bottomBar.setPadding(
                     bottomBar.paddingLeft,
                     bottomBar.paddingTop,
                     bottomBar.paddingRight,
-                    navInsets.bottom
+                    bottomInset
                 )
             } else {
+                topLp.height = topBarBaseHeight
+                topBar.layoutParams = topLp
                 topBar.setPadding(topBar.paddingLeft, 0, topBar.paddingRight, topBar.paddingBottom)
+
+                bottomLp.height = bottomBarBaseHeight
+                bottomBar.layoutParams = bottomLp
                 bottomBar.setPadding(bottomBar.paddingLeft, bottomBar.paddingTop, bottomBar.paddingRight, 0)
             }
             insets
         }
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
     }
 
     private fun startCastingService() {
@@ -610,6 +712,7 @@ class MainActivity : AppCompatActivity() {
             },
             onPageLoadingChanged = { isLoading ->
                 progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+                updateNavButtonsState()
                 if (isLoading) {
                     isInlineVideoPlaying = false
                     updateKeepScreenOn()
@@ -618,35 +721,29 @@ class MainActivity : AppCompatActivity() {
                     val currentUrl = targetWebView.url
                     if (!currentUrl.isNullOrBlank() && !currentUrl.startsWith("about:") && !currentUrl.startsWith("javascript:")) {
                         lastValidUrl = currentUrl
-                        etUrl.setText(currentUrl)
+                        if (!etUrl.hasFocus()) {
+                            etUrl.setText(currentUrl)
+                        }
                     }
                     updateBookmarkIconState(currentUrl)
                     logMemoryUsage("page_load_finished")
-
-                    EpisodeExtractor.extractPlaylistFromPage(targetWebView) { playlist ->
-                        if (playlist != null && playlist.episodes.size >= 2) {
-                            Log.i(TAG, "Parsed playlist with ${playlist.episodes.size} episodes: ${playlist.seriesTitle}")
-                            val currentState = playbackController.session.value.playbackState
-                            val isCurrentlyCastingOrActive = currentState is PlaybackState.Playing ||
-                                    currentState is PlaybackState.Paused ||
-                                    currentState is PlaybackState.Resolving ||
-                                    currentState is PlaybackState.CountdownNext
-                            if (isCurrentlyCastingOrActive) {
-                                if (playbackController.session.value.seriesId == playlist.seriesId) {
-                                    playbackController.mergeQueueEpisodes(playlist.episodes)
-                                } else {
-                                    Log.d(TAG, "Active playback session in progress, postponing loadQueue for series ${playlist.seriesTitle}")
-                                }
-                            } else {
-                                playbackController.loadQueue(playlist.episodes, playlist.currentActiveIndex)
-                            }
-                        }
-                    }
+                    extractEpisodesFromWebView(targetWebView)
                 }
             },
             onPageUrlChanged = { url ->
+                updateNavButtonsState()
                 if (!url.isNullOrBlank() && !url.startsWith("about:") && !url.startsWith("javascript:")) {
                     lastValidUrl = url
+                    if (!etUrl.hasFocus()) {
+                        etUrl.setText(url)
+                    }
+                    updateBookmarkIconState(url)
+                    // SPA 路由切换不会触发 onPageFinished，延迟补一次剧集列表嗅探
+                    targetWebView.postDelayed({
+                        if (!isFinishing && !isDestroyed) {
+                            extractEpisodesFromWebView(targetWebView)
+                        }
+                    }, 900L)
                 }
             },
             onRendererGoneCallback = { didCrash, failedUrl ->
@@ -862,11 +959,71 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun extractEpisodesFromWebView(targetWebView: WebView) {
+        EpisodeExtractor.extractPlaylistFromPage(targetWebView) { playlist ->
+            if (playlist != null && playlist.episodes.size >= 2) {
+                Log.i(TAG, "Parsed playlist with ${playlist.episodes.size} episodes: ${playlist.seriesTitle}")
+                val currentState = playbackController.session.value.playbackState
+                val isCurrentlyCastingOrActive = currentState is PlaybackState.Playing ||
+                        currentState is PlaybackState.Paused ||
+                        currentState is PlaybackState.Buffering ||
+                        currentState is PlaybackState.Resolving ||
+                        currentState is PlaybackState.CountdownNext
+                if (isCurrentlyCastingOrActive) {
+                    if (playbackController.session.value.seriesId == playlist.seriesId) {
+                        playbackController.mergeQueueEpisodes(playlist.episodes)
+                    } else {
+                        pendingExtractedPlaylist = playlist
+                        Log.d(TAG, "Active playback session in progress, postponing loadQueue for series ${playlist.seriesTitle}")
+                    }
+                } else {
+                    pendingExtractedPlaylist = null
+                    playbackController.loadQueue(playlist.episodes, playlist.currentActiveIndex)
+                }
+            }
+        }
+    }
+
+    private fun updateNavButtonsState() {
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            val canBack = ::webView.isInitialized && webView.canGoBack()
+            val canFwd = ::webView.isInitialized && webView.canGoForward()
+            btnBack.isEnabled = canBack
+            btnBack.alpha = if (canBack) 1.0f else 0.35f
+            btnForward.isEnabled = canFwd
+            btnForward.alpha = if (canFwd) 1.0f else 0.35f
+        }
+    }
+
+    private fun normalizeUserUrlOrSearch(rawInput: String): String {
+        val input = rawInput.trim()
+        if (input.isBlank()) return AppPreferences.getHomepageUrl(this)
+        if (input.startsWith("http://", ignoreCase = true) ||
+            input.startsWith("https://", ignoreCase = true) ||
+            input.startsWith("about:", ignoreCase = true)
+        ) {
+            return input
+        }
+        val looksLikeHost = !input.contains(' ') && (
+            input.contains('.') ||
+                input.startsWith("localhost", ignoreCase = true) ||
+                input.contains(':')
+            )
+        return if (looksLikeHost) {
+            "https://$input"
+        } else {
+            "https://www.baidu.com/s?wd=${URLEncoder.encode(input, "UTF-8")}"
+        }
+    }
+
     private fun setupListeners() {
-        CandidateManager.addListener { candidates ->
+        val listener: (List<VideoCandidate>) -> Unit = { candidates ->
             currentCandidates = candidates
             updateCastBadge(candidates.size)
         }
+        candidateListener = listener
+        CandidateManager.addListener(listener)
 
         btnHome.setOnClickListener {
             val homeUrl = AppPreferences.getHomepageUrl(this)
@@ -899,14 +1056,23 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        etUrl.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                btnClearUrl.visibility = if (etUrl.hasFocus() && !s.isNullOrEmpty()) View.VISIBLE else View.GONE
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        etUrl.setOnFocusChangeListener { _, hasFocus ->
+            btnClearUrl.visibility = if (hasFocus && !etUrl.text.isNullOrEmpty()) View.VISIBLE else View.GONE
+        }
+
         etUrl.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE) {
-                var input = etUrl.text.toString().trim()
-                if (!input.startsWith("http://") && !input.startsWith("https://")) {
-                    input = "https://$input"
-                }
-                lastValidUrl = input
-                webView.loadUrl(input)
+                val targetUrl = normalizeUserUrlOrSearch(etUrl.text.toString())
+                lastValidUrl = targetUrl
+                etUrl.setText(targetUrl)
+                webView.loadUrl(targetUrl)
                 etUrl.clearFocus()
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                 imm?.hideSoftInputFromWindow(etUrl.windowToken, 0)
@@ -924,7 +1090,7 @@ class MainActivity : AppCompatActivity() {
             handleCastButtonClick()
         }
 
-
+        updateNavButtonsState()
     }
 
     private fun updateBookmarkIconState(url: String? = webView.url) {
@@ -955,13 +1121,12 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             try {
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                btnCast.text = "投屏"
                 if (count > 0) {
                     tvBadgeCount.visibility = View.VISIBLE
-                    tvBadgeCount.text = count.toString()
-                    btnCast.text = "投屏 ($count)"
+                    tvBadgeCount.text = if (count > 99) "99+" else count.toString()
                 } else {
                     tvBadgeCount.visibility = View.GONE
-                    tvBadgeCount.text = "投屏"
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "Error updating cast badge: ${e.message}")
@@ -979,7 +1144,7 @@ class MainActivity : AppCompatActivity() {
         lastCastClickTime = now
 
         val curState = playbackController.session.value.playbackState
-        if ((curState is PlaybackState.Playing || curState is PlaybackState.Paused) && !playbackControlBar.isVisible) {
+        if ((curState is PlaybackState.Playing || curState is PlaybackState.Paused || curState is PlaybackState.Buffering) && !playbackControlBar.isVisible) {
             isControlBarDismissedByUser = false
             playbackControlBar.show(
                 playbackController.session.value.currentEpisode?.displayTitle,
@@ -1048,6 +1213,9 @@ class MainActivity : AppCompatActivity() {
                                 )
                                 CandidateManager.addCandidate(candidate)
                             }
+                            showCandidatesOrCast(CandidateManager.getCandidates())
+                        } else {
+                            Toast.makeText(this, "未在当前页面重新探测到视频", Toast.LENGTH_SHORT).show()
                         }
                     }
                 },
@@ -1058,16 +1226,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showDeviceSelectOrCast(candidate: VideoCandidate) {
-        // 优先直连 BigEyesTV：无需扫描局域网 DLNA；失败或未启用时回退到 DLNA 设备选择
-        if (playbackController.shouldCastToBigEyesTv()) {
+    private fun showDeviceSelectOrCast(candidate: VideoCandidate, forceDevicePicker: Boolean = false) {
+        activeCastCandidate = candidate
+        // 优先直连 BigEyesTV（除非用户点击了"换设备"主动重新挑选）
+        if (!forceDevicePicker && playbackController.shouldCastToBigEyesTv()) {
             val headers = prepareQueueForCandidate(candidate)
-            if (executeDirectTvCast(candidate, headers)) {
-                return
+            executeDirectTvCast(candidate, headers) {
+                Log.w(TAG, "Direct BigEyesTV cast unavailable, falling back to DLNA scan")
+                scanAndShowDevicePicker(candidate)
             }
-            Log.w(TAG, "Direct BigEyesTV cast unavailable, falling back to DLNA scan")
+            return
         }
+        scanAndShowDevicePicker(candidate)
+    }
 
+    private fun scanAndShowDevicePicker(candidate: VideoCandidate) {
         val service = CastingForegroundService.instance
         val dlnaManager = service?.dlnaManager ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also {
             fallbackDlnaManager = it
@@ -1088,22 +1261,25 @@ class MainActivity : AppCompatActivity() {
                     if (selectedDevice.isBigEyesTv) {
                         bigEyesTvConnector.bindDevice(selectedDevice)
                         val headers = prepareQueueForCandidate(candidate)
-                        if (executeDirectTvCast(candidate, headers)) {
-                            return@DeviceSelectDialog
+                        executeDirectTvCast(candidate, headers) {
+                            executeCast(candidate, selectedDevice.id, allowBigEyesFallback = false)
                         }
+                    } else {
+                        // 用户明确选择了非 BigEyesTV 的 DLNA 设备：切勿劫持到 BigEyesTV
+                        executeCast(candidate, selectedDevice.id, allowBigEyesFallback = false)
                     }
-                    executeCast(candidate, selectedDevice.id)
                 }.show()
             } else {
                 val soleDevice = devices.firstOrNull()
                 if (soleDevice != null && soleDevice.isBigEyesTv && AppPreferences.isPreferBigEyesTv(this@MainActivity)) {
                     bigEyesTvConnector.bindDevice(soleDevice)
                     val headers = prepareQueueForCandidate(candidate)
-                    if (executeDirectTvCast(candidate, headers)) {
-                        return@launch
+                    executeDirectTvCast(candidate, headers) {
+                        executeCast(candidate, soleDevice.id, allowBigEyesFallback = false)
                     }
+                } else {
+                    executeCast(candidate, soleDevice?.id, allowBigEyesFallback = false)
                 }
-                executeCast(candidate, soleDevice?.id)
             }
         }
     }
@@ -1133,11 +1309,12 @@ class MainActivity : AppCompatActivity() {
                             if (dev.isBigEyesTv) {
                                 bigEyesTvConnector.bindDevice(dev)
                                 val headers = prepareQueueForCandidate(candidate)
-                                if (executeDirectTvCast(candidate, headers)) {
-                                    return@launch
+                                executeDirectTvCast(candidate, headers) {
+                                    executeCast(candidate, dev.id, allowBigEyesFallback = false)
                                 }
+                            } else {
+                                executeCast(candidate, dev.id, allowBigEyesFallback = false)
                             }
-                            executeCast(candidate, dev.id)
                         } else {
                             Toast.makeText(this@MainActivity, "连接失败：无法解析 $text 的 DLNA 协议", Toast.LENGTH_LONG).show()
                         }
@@ -1148,28 +1325,57 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun executeCast(candidate: VideoCandidate, targetDeviceId: String?) {
-        val service = CastingForegroundService.instance
-        if (service == null) {
-            startCastingService()
-            Toast.makeText(this, "正在初始化本地投屏服务，请重试", Toast.LENGTH_SHORT).show()
-            return
-        }
-
+    private fun executeCast(
+        candidate: VideoCandidate,
+        targetDeviceId: String?,
+        allowBigEyesFallback: Boolean = false
+    ) {
+        activeCastCandidate = candidate
         val headers = prepareQueueForCandidate(candidate)
-
-        // Second-chance direct hand-off (CHANGELOG "双层保护"): covers callers such as the
-        // manual-device dialog that never got a chance to try BigEyesTV first.
-        if (executeDirectTvCast(candidate, headers, quiet = true)) {
+        if (allowBigEyesFallback && playbackController.shouldCastToBigEyesTv()) {
+            executeDirectTvCast(candidate, headers, quiet = true) {
+                startDlnaCastWithServiceAwait(candidate, targetDeviceId)
+            }
             return
         }
+        startDlnaCastWithServiceAwait(candidate, targetDeviceId)
+    }
 
+    private fun startDlnaCastWithServiceAwait(candidate: VideoCandidate, targetDeviceId: String?) {
+        val existingService = CastingForegroundService.instance
+        if (existingService != null) {
+            performDlnaCastOnService(existingService, candidate, targetDeviceId)
+            return
+        }
+        startCastingService()
+        Toast.makeText(this, "正在初始化本地投屏服务...", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            var waited = 0
+            while (CastingForegroundService.instance == null && waited < 2500) {
+                kotlinx.coroutines.delay(100)
+                waited += 100
+            }
+            val service = CastingForegroundService.instance
+            if (service == null) {
+                Toast.makeText(this@MainActivity, "本地投屏服务初始化超时，请重试", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            performDlnaCastOnService(service, candidate, targetDeviceId)
+        }
+    }
+
+    private fun performDlnaCastOnService(
+        service: CastingForegroundService,
+        candidate: VideoCandidate,
+        targetDeviceId: String?
+    ) {
         val startPositionMs = playbackController.peekResumePositionMs()
         Toast.makeText(this, "正在由手机本地代理推送至电视...", Toast.LENGTH_SHORT).show()
 
         service.castCandidate(candidate, targetDeviceId, startPositionMs) { success, devName ->
             if (success) {
                 val targetName = devName ?: "电视"
+                isControlBarDismissedByUser = false
                 Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
                 playbackController.queue.currentEpisode?.let { episode ->
                     playbackController.onDlnaCastStarted(episode, targetName, startPositionMs)
@@ -1219,17 +1425,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 直连 BigEyesTV 投屏：跳过手机本地代理，把已解析地址与防盗链 Header 直接交给电视端。
-     * 成功返回 true；未启用直连或启动失败返回 false，调用方回退到 DLNA。
+     * 异步直连 BigEyesTV 投屏：跳过手机本地代理，把已解析地址与防盗链 Header 直接交给电视端。
+     * 若未启用直连或连接失败，回调 [onFailureFallback] 让调用方回退到 DLNA。
      */
     private fun executeDirectTvCast(
         candidate: VideoCandidate,
         headers: Map<String, String>,
-        quiet: Boolean = false
-    ): Boolean {
-        if (!playbackController.shouldCastToBigEyesTv()) return false
+        quiet: Boolean = false,
+        onFailureFallback: () -> Unit = {}
+    ) {
+        if (!playbackController.shouldCastToBigEyesTv()) {
+            onFailureFallback()
+            return
+        }
 
-        val episode = playbackController.queue.currentEpisode ?: return false
+        val episode = playbackController.queue.currentEpisode
+        if (episode == null) {
+            onFailureFallback()
+            return
+        }
         val item = PlaybackItem(
             episode = episode.copy(episodeIndex = playbackController.queue.currentIndex),
             playUrl = candidate.url,
@@ -1245,28 +1459,29 @@ class MainActivity : AppCompatActivity() {
         if (!quiet) {
             Toast.makeText(this, "正在直连 BigEyesTV 投屏...", Toast.LENGTH_SHORT).show()
         }
-        val started = bigEyesTvConnector.startTvPlayback(
+        bigEyesTvConnector.startTvPlayback(
             item = item,
             autoPlayNext = playbackController.session.value.autoPlayNext,
             startPositionMs = startPositionMs,
             queue = queue
-        )
-        if (!started) {
-            Log.w(TAG, "Direct BigEyesTV cast failed, falling back to DLNA")
-            return false
+        ) { started ->
+            if (!started) {
+                Log.w(TAG, "Direct BigEyesTV cast failed, falling back to DLNA")
+                onFailureFallback()
+                return@startTvPlayback
+            }
+            isControlBarDismissedByUser = false
+            playbackController.onTvDirectCastStarted(item, startPositionMs, queueHandedOver = (queue != null))
+            Toast.makeText(this, "已直连投屏至 BigEyesTV", Toast.LENGTH_LONG).show()
+            playbackControlBar.setRemoteProgressSource(true)
+            playbackControlBar.show(item.displayTitle, "BigEyesTV")
+            playbackControlBar.updateQueueState(
+                playbackController.queue.currentIndex,
+                playbackController.queue.size,
+                playbackController.queue.hasPrevious,
+                playbackController.queue.hasNext
+            )
         }
-
-        playbackController.onTvDirectCastStarted(item, startPositionMs, queueHandedOver = (queue != null))
-        Toast.makeText(this, "已直连投屏至 BigEyesTV", Toast.LENGTH_LONG).show()
-        playbackControlBar.setRemoteProgressSource(true)
-        playbackControlBar.show(item.displayTitle, "BigEyesTV")
-        playbackControlBar.updateQueueState(
-            playbackController.queue.currentIndex,
-            playbackController.queue.size,
-            playbackController.queue.hasPrevious,
-            playbackController.queue.hasNext
-        )
-        return true
     }
 
 
@@ -1285,7 +1500,12 @@ class MainActivity : AppCompatActivity() {
             topBar.visibility = View.VISIBLE
             bottomBar.visibility = View.VISIBLE
             webView.visibility = View.VISIBLE
-            if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) {
+            val curState = if (::playbackController.isInitialized) playbackController.session.value.playbackState else PlaybackState.Idle
+            val isCastingActive = CastingForegroundService.instance?.currentStatus?.hasActiveStream == true ||
+                curState is PlaybackState.Playing ||
+                curState is PlaybackState.Paused ||
+                curState is PlaybackState.Buffering
+            if (isCastingActive && !isControlBarDismissedByUser) {
                 containerControl.visibility = View.VISIBLE
             }
 
@@ -1324,6 +1544,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (playbackControlBar.isVisible) {
+                    isControlBarDismissedByUser = true
                     playbackControlBar.hide()
                     return
                 }
@@ -1359,6 +1580,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         logMemoryUsage("onPause")
+        CastingForegroundService.instance?.onAutoNextEpisodeListener = null
         try {
             webView.onPause()
             CookieManager.getInstance().flush()
@@ -1381,6 +1603,8 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         logMemoryUsage("onDestroy_start")
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        candidateListener?.let { CandidateManager.removeListener(it) }
+        candidateListener = null
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
         fallbackDlnaManager?.release()

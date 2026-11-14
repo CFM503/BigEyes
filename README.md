@@ -93,7 +93,8 @@ cd bigeyes-app
 
 ## 三、版本记录
 
-* **v2.2.0 (当前版本)**：BigEyes LAN Companion 伴侣协议 v1.0 全面落地、双端网络 REST + 本地 IPC 混合通道打通、全剧集队列下放与防盗链 Header 透传、1000ms 进度与状态镜像、切集竞态彻底解决、代理线程池防拒保护、HTTP 206 Range 分片支持与 MP4 直链嗅探支持。
+* **v2.2.3 (当前版本)**：跨端全量审计、无损分集地址推送（`updateEpisodeUrl`）、手机端播控条重构（倍速/换设备）、DayNight 主题与高清矢量图标、代理与 M3U8 解析强化、Android Lint 0 错误全面加固。
+* **v2.2.0**：BigEyes LAN Companion 伴侣协议 v1.0 全面落地、双端网络 REST + 本地 IPC 混合通道打通、全剧集队列下放与防盗链 Header 透传、1000ms 进度与状态镜像、切集竞态彻底解决、代理线程池防拒保护、HTTP 206 Range 分片支持与 MP4 直链嗅探支持。
 * **v2.1.3**：与 `BigEyesTV v1.2.2` 配套的联调发布，手机端无功能变更，同步版本与发布节奏。
 * **v2.1.2**：跨端联调审计修复 —— `<queries>`/播放命令权限双向补齐、电视端组件类名修正、手机端 DLNA 播控打通（`CastTransportControl`）、投屏假成功与队列参数修复、断点续播历史读写、若干 P2 稳定性清理。
 * **v2.1.1**：BigEyesTV 直连投屏全链路补全（默认直连 + 双层兜底）、状态回传播控条、防盗链请求头透传、`PlaybackIntentContract` 协议扩展与 41 项单测。

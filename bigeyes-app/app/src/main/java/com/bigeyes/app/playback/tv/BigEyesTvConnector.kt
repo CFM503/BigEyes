@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.bigeyes.app.model.DlnaDevice
 import com.bigeyes.app.model.playback.Episode
 import com.bigeyes.app.model.playback.PlaybackItem
@@ -41,7 +42,20 @@ class BigEyesTvConnector(private val context: Context) {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 
-    var onTvStatusUpdateListener: ((state: String, seriesId: String?, episodeIndex: Int, posMs: Long, durMs: Long) -> Unit)? = null
+    data class TvStatusUpdate(
+        val state: String,
+        val seriesId: String? = null,
+        val seriesTitle: String? = null,
+        val episodeIndex: Int = 0,
+        val episodeTitle: String? = null,
+        val positionMs: Long = 0L,
+        val durationMs: Long = 0L,
+        val speed: Float = 1.0f,
+        val autoPlayNext: Boolean? = null,
+        val errorMessage: String? = null
+    )
+
+    var onTvStatusUpdateListener: ((TvStatusUpdate) -> Unit)? = null
 
     private var statusReceiver: BroadcastReceiver? = null
     private var isReceiverRegistered = false
@@ -59,6 +73,11 @@ class BigEyesTvConnector(private val context: Context) {
         .writeTimeout(3, TimeUnit.SECONDS)
         .build()
 
+    private val probeHttpClient = OkHttpClient.Builder()
+        .connectTimeout(800, TimeUnit.MILLISECONDS)
+        .readTimeout(800, TimeUnit.MILLISECONDS)
+        .build()
+
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var pollingJob: Job? = null
 
@@ -66,6 +85,49 @@ class BigEyesTvConnector(private val context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         targetTvIp = prefs.getString(KEY_SAVED_TV_IP, null)
         targetTvPort = prefs.getInt(KEY_SAVED_TV_PORT, 7000)
+    }
+
+    fun clearSavedDevice() {
+        boundDevice = null
+        targetTvIp = null
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_SAVED_TV_IP)
+            .remove(KEY_SAVED_TV_PORT)
+            .apply()
+        stopStatusPolling()
+    }
+
+    /**
+     * Fast async validation (~800ms) of the saved BigEyesTV IP via /bigeyes/api/info.
+     * Clears stale IP automatically if unreachable so callers fall back to discovery.
+     */
+    fun validateSavedDevice(onResult: ((Boolean) -> Unit)? = null) {
+        val ip = targetTvIp
+        val port = targetTvPort
+        if (ip.isNullOrBlank()) {
+            onResult?.invoke(false)
+            return
+        }
+        scope.launch {
+            val reachable = probeCompanionReachable(ip, port)
+            if (!reachable && targetTvIp == ip) {
+                Log.w(TAG, "Saved BigEyesTV IP $ip:$port unreachable, clearing stale binding")
+                clearSavedDevice()
+            }
+            withContext(Dispatchers.Main) {
+                onResult?.invoke(reachable)
+            }
+        }
+    }
+
+    private fun probeCompanionReachable(ip: String, port: Int): Boolean {
+        return try {
+            val req = Request.Builder().url("http://$ip:$port/bigeyes/api/info").build()
+            probeHttpClient.newCall(req).execute().use { it.isSuccessful }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**
@@ -145,27 +207,84 @@ class BigEyesTvConnector(private val context: Context) {
     }
 
     /**
-     * Start playback on BigEyesTV.
+     * Start playback on BigEyesTV asynchronously without blocking the main thread.
      *
-     * @param queue optional fully resolved episode queue; when provided the TV owns local
-     * auto-next playback, otherwise the phone drives episode transitions.
+     * @param queue optional episode queue; when provided the TV owns local auto-next playback.
      */
     fun startTvPlayback(
         item: PlaybackItem,
         autoPlayNext: Boolean,
         startPositionMs: Long = 0L,
-        queue: List<Episode>? = null
+        queue: List<Episode>? = null,
+        resumeFromHistory: Boolean = true,
+        onResult: (Boolean) -> Unit
+    ) {
+        if (!isDirectCastSupported()) {
+            Log.w(TAG, "BigEyesTV direct cast is unavailable on this device")
+            onResult(false)
+            return
+        }
+
+        val ip = targetTvIp
+        if (!ip.isNullOrBlank()) {
+            val port = targetTvPort
+            scope.launch {
+                val ok = startNetworkCompanionPlayback(
+                    ip = ip,
+                    port = port,
+                    item = item,
+                    autoPlayNext = autoPlayNext,
+                    startPositionMs = startPositionMs,
+                    queue = queue,
+                    resumeFromHistory = resumeFromHistory
+                )
+                withContext(Dispatchers.Main) {
+                    onResult(ok)
+                }
+            }
+            return
+        }
+
+        val localOk = startLocalTvPlayback(item, autoPlayNext, startPositionMs, queue, resumeFromHistory)
+        onResult(localOk)
+    }
+
+    suspend fun startTvPlaybackSuspend(
+        item: PlaybackItem,
+        autoPlayNext: Boolean,
+        startPositionMs: Long = 0L,
+        queue: List<Episode>? = null,
+        resumeFromHistory: Boolean = true
     ): Boolean {
         if (!isDirectCastSupported()) {
             Log.w(TAG, "BigEyesTV direct cast is unavailable on this device")
             return false
         }
-
         val ip = targetTvIp
-        if (!ip.isNullOrBlank()) {
-            return startNetworkCompanionPlayback(ip, targetTvPort, item, autoPlayNext, startPositionMs, queue)
+        return if (!ip.isNullOrBlank()) {
+            startNetworkCompanionPlayback(
+                ip = ip,
+                port = targetTvPort,
+                item = item,
+                autoPlayNext = autoPlayNext,
+                startPositionMs = startPositionMs,
+                queue = queue,
+                resumeFromHistory = resumeFromHistory
+            )
+        } else {
+            withContext(Dispatchers.Main) {
+                startLocalTvPlayback(item, autoPlayNext, startPositionMs, queue, resumeFromHistory)
+            }
         }
+    }
 
+    private fun startLocalTvPlayback(
+        item: PlaybackItem,
+        autoPlayNext: Boolean,
+        startPositionMs: Long,
+        queue: List<Episode>?,
+        resumeFromHistory: Boolean
+    ): Boolean {
         // Local intent dispatch
         registerStatusReceiver()
 
@@ -192,10 +311,14 @@ class BigEyesTvConnector(private val context: Context) {
             putExtra(PlaybackIntentContract.EXTRA_POSITION_MS, startPositionMs)
             putExtra(PlaybackIntentContract.EXTRA_SEEK_POSITION, startPositionMs)
             putExtra(PlaybackIntentContract.EXTRA_AUTO_PLAY_NEXT, autoPlayNext)
+            putExtra(PlaybackIntentContract.EXTRA_RESUME_FROM_HISTORY, resumeFromHistory)
 
             item.headers["Referer"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_REFERER, it) }
             item.headers["User-Agent"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_USER_AGENT, it) }
             item.headers["Cookie"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_COOKIE, it) }
+            if (item.headers.isNotEmpty()) {
+                putExtra(PlaybackIntentContract.EXTRA_HEADERS, JSONObject(item.headers).toString())
+            }
 
             if (action == PlaybackIntentContract.ACTION_PLAY_QUEUE && queue != null) {
                 putExtra(
@@ -219,62 +342,85 @@ class BigEyesTvConnector(private val context: Context) {
         }
     }
 
-    private fun startNetworkCompanionPlayback(
+    private suspend fun startNetworkCompanionPlayback(
         ip: String,
         port: Int,
         item: PlaybackItem,
         autoPlayNext: Boolean,
         startPositionMs: Long,
-        queue: List<Episode>?
-    ): Boolean {
-        return runBlocking(Dispatchers.IO) {
-            try {
-                val json = JSONObject()
-                json.put("seriesId", item.episode.seriesId)
-                json.put("seriesTitle", item.episode.seriesTitle)
-                json.put("startIndex", item.episode.episodeIndex)
-                json.put("startPositionMs", startPositionMs)
-                json.put("autoPlayNext", autoPlayNext)
+        queue: List<Episode>?,
+        resumeFromHistory: Boolean
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val json = JSONObject()
+            json.put("seriesId", item.episode.seriesId)
+            json.put("seriesTitle", item.episode.seriesTitle)
+            json.put("startIndex", item.episode.episodeIndex)
+            json.put("startPositionMs", startPositionMs)
+            json.put("autoPlayNext", autoPlayNext)
+            json.put("resumeFromHistory", resumeFromHistory)
 
-                val headersObj = JSONObject()
-                item.headers.forEach { (k, v) -> headersObj.put(k, v) }
-                json.put("headers", headersObj)
+            val headersObj = JSONObject()
+            item.headers.forEach { (k, v) -> headersObj.put(k, v) }
+            json.put("headers", headersObj)
 
-                val queueArray = JSONArray()
-                val episodesToQueue = if (!queue.isNullOrEmpty()) queue else listOf(item.episode.copy(playUrl = item.playUrl))
-                for (ep in episodesToQueue) {
-                    val epObj = JSONObject()
-                    epObj.put("seriesId", ep.seriesId)
-                    epObj.put("seriesTitle", ep.seriesTitle)
-                    epObj.put("seasonNumber", ep.seasonNumber)
-                    epObj.put("episodeNumber", ep.episodeNumber)
-                    epObj.put("episodeIndex", ep.episodeIndex)
-                    epObj.put("title", ep.displayTitle)
-                    epObj.put("url", ep.playUrl)
-                    epObj.put("durationMs", ep.durationMs)
-                    queueArray.put(epObj)
+            val queueArray = JSONArray()
+            val episodesToQueue = if (!queue.isNullOrEmpty()) queue else listOf(item.episode.copy(playUrl = item.playUrl))
+            for (ep in episodesToQueue) {
+                val epObj = JSONObject()
+                epObj.put("seriesId", ep.seriesId)
+                epObj.put("seriesTitle", ep.seriesTitle)
+                epObj.put("seasonNumber", ep.seasonNumber)
+                epObj.put("episodeNumber", ep.episodeNumber)
+                epObj.put("episodeIndex", ep.episodeIndex)
+                epObj.put("episodeTitle", ep.displayTitle)
+                epObj.put("title", ep.displayTitle)
+                val resolvedUrl = if (ep.episodeIndex == item.episode.episodeIndex && ep.playUrl.isNullOrBlank()) {
+                    item.playUrl
+                } else {
+                    ep.playUrl ?: ""
                 }
-                json.put("queue", queueArray)
+                epObj.put("playUrl", resolvedUrl)
+                epObj.put("url", resolvedUrl)
+                epObj.put("duration", ep.durationMs)
+                epObj.put("durationMs", ep.durationMs)
 
-                val playUrl = "http://$ip:$port/bigeyes/api/play"
-                val body = json.toString().toRequestBody(JSON_MEDIA_TYPE)
-                val request = Request.Builder().url(playUrl).post(body).build()
-
-                val response = httpClient.newCall(request).execute()
-                response.use { resp ->
-                    if (resp.isSuccessful) {
-                        Log.i(TAG, "Successfully handed over playback to BigEyesTV Companion at $playUrl")
-                        startStatusPolling(ip, port)
-                        true
-                    } else {
-                        Log.w(TAG, "BigEyesTV Companion rejected play request: ${resp.code} ${resp.message}")
-                        false
-                    }
+                val epHeaders = if (ep.playHeaders.isNotEmpty()) {
+                    ep.playHeaders
+                } else if (ep.episodeIndex == item.episode.episodeIndex) {
+                    item.headers
+                } else {
+                    emptyMap()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Network error starting BigEyesTV Companion playback: ${e.message}", e)
-                false
+                if (epHeaders.isNotEmpty()) {
+                    val epHeadersObj = JSONObject()
+                    epHeaders.forEach { (k, v) -> epHeadersObj.put(k, v) }
+                    epObj.put("headers", epHeadersObj)
+                }
+                queueArray.put(epObj)
             }
+            json.put("queue", queueArray)
+
+            val playUrl = "http://$ip:$port/bigeyes/api/play"
+            val body = json.toString().toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder().url(playUrl).post(body).build()
+
+            httpClient.newCall(request).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    Log.i(TAG, "Successfully handed over playback to BigEyesTV Companion at $playUrl")
+                    startStatusPolling(ip, port)
+                    true
+                } else {
+                    Log.w(TAG, "BigEyesTV Companion rejected play request: ${resp.code} ${resp.message}")
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Network error starting BigEyesTV Companion playback ($ip:$port): ${e.message}", e)
+            if (targetTvIp == ip) {
+                clearSavedDevice()
+            }
+            false
         }
     }
 
@@ -295,13 +441,32 @@ class BigEyesTvConnector(private val context: Context) {
                             if (!body.isNullOrBlank()) {
                                 val json = JSONObject(body)
                                 val state = json.optString("state", PlaybackIntentContract.STATE_STOPPED)
-                                val seriesId = if (json.has("seriesId") && !json.isNull("seriesId")) json.optString("seriesId") else null
+                                val seriesId = json.optString("seriesId", "").takeIf { it.isNotBlank() && !json.isNull("seriesId") }
+                                val seriesTitle = json.optString("seriesTitle", "").takeIf { it.isNotBlank() && !json.isNull("seriesTitle") }
                                 val epIndex = json.optInt("episodeIndex", 0)
+                                val epTitle = json.optString("episodeTitle", "").takeIf { it.isNotBlank() && !json.isNull("episodeTitle") }
                                 val posMs = json.optLong("currentPositionMs", 0L)
                                 val durMs = json.optLong("durationMs", 0L)
+                                val speed = json.optDouble("speed", 1.0).toFloat()
+                                val autoPlayNext = if (json.has("autoPlayNext") && !json.isNull("autoPlayNext")) {
+                                    json.optBoolean("autoPlayNext")
+                                } else null
+                                val errorMsg = json.optString("errorMessage", "").takeIf { it.isNotBlank() && !json.isNull("errorMessage") }
 
+                                val update = TvStatusUpdate(
+                                    state = state,
+                                    seriesId = seriesId,
+                                    seriesTitle = seriesTitle,
+                                    episodeIndex = epIndex,
+                                    episodeTitle = epTitle,
+                                    positionMs = posMs,
+                                    durationMs = durMs,
+                                    speed = speed,
+                                    autoPlayNext = autoPlayNext,
+                                    errorMessage = errorMsg
+                                )
                                 withContext(Dispatchers.Main) {
-                                    onTvStatusUpdateListener?.invoke(state, seriesId, epIndex, posMs, durMs)
+                                    onTvStatusUpdateListener?.invoke(update)
                                 }
                             }
                         } else {
@@ -315,7 +480,12 @@ class BigEyesTvConnector(private val context: Context) {
                     if (consecutiveFailures >= 5) {
                         Log.w(TAG, "Lost connection to BigEyesTV after $consecutiveFailures consecutive poll failures")
                         withContext(Dispatchers.Main) {
-                            onTvStatusUpdateListener?.invoke(PlaybackIntentContract.STATE_ERROR, null, 0, 0L, 0L)
+                            onTvStatusUpdateListener?.invoke(
+                                TvStatusUpdate(
+                                    state = PlaybackIntentContract.STATE_ERROR,
+                                    errorMessage = "与大屏端连接已断开，请检查网络或重新投屏"
+                                )
+                            )
                         }
                         break
                     }
@@ -430,17 +600,108 @@ class BigEyesTvConnector(private val context: Context) {
             scope.launch { sendNetworkControl(ip, targetTvPort, payload) }
             return true
         }
-        return false
+        return sendCommand(PlaybackIntentContract.ACTION_SET_SPEED) {
+            putExtra(PlaybackIntentContract.EXTRA_SPEED, speed)
+        }
     }
 
-    fun playEpisode(index: Int): Boolean {
+    fun playEpisode(index: Int, positionMs: Long = 0L): Boolean {
         val ip = targetTvIp
         if (!ip.isNullOrBlank()) {
             val payload = JSONObject().apply {
                 put("action", "playEpisode")
                 put("index", index)
                 put("episodeIndex", index)
+                if (positionMs > 0L) {
+                    put("positionMs", positionMs)
+                }
             }
+            scope.launch { sendNetworkControl(ip, targetTvPort, payload) }
+            return true
+        }
+        return sendCommand(PlaybackIntentContract.ACTION_PLAY_EPISODE) {
+            putExtra(PlaybackIntentContract.EXTRA_EPISODE_INDEX, index)
+            if (positionMs > 0L) {
+                putExtra(PlaybackIntentContract.EXTRA_POSITION_MS, positionMs)
+                putExtra(PlaybackIntentContract.EXTRA_SEEK_POSITION, positionMs)
+            }
+        }
+    }
+
+    fun updateEpisodeUrl(
+        episodeIndex: Int,
+        playUrl: String,
+        headers: Map<String, String> = emptyMap(),
+        positionMs: Long? = null,
+        onResult: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        val ip = targetTvIp
+        if (!ip.isNullOrBlank()) {
+            val payload = JSONObject().apply {
+                put("action", "updateEpisodeUrl")
+                put("episodeIndex", episodeIndex)
+                put("index", episodeIndex)
+                put("playUrl", playUrl)
+                if (headers.isNotEmpty()) {
+                    put("headers", JSONObject(headers))
+                }
+                if (positionMs != null && positionMs >= 0L) {
+                    put("positionMs", positionMs)
+                }
+            }
+            scope.launch {
+                val ok = sendNetworkControl(ip, targetTvPort, payload)
+                withContext(Dispatchers.Main) {
+                    onResult?.invoke(ok)
+                }
+            }
+            return true
+        }
+        val ok = sendCommand(PlaybackIntentContract.ACTION_UPDATE_EPISODE_URL) {
+            putExtra(PlaybackIntentContract.EXTRA_EPISODE_INDEX, episodeIndex)
+            putExtra(PlaybackIntentContract.EXTRA_PLAY_URL, playUrl)
+            headers["Referer"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_REFERER, it) }
+            headers["User-Agent"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_USER_AGENT, it) }
+            headers["Cookie"]?.let { putExtra(PlaybackIntentContract.EXTRA_HEADER_COOKIE, it) }
+            if (headers.isNotEmpty()) {
+                putExtra(PlaybackIntentContract.EXTRA_HEADERS, JSONObject(headers).toString())
+            }
+            if (positionMs != null && positionMs >= 0L) {
+                putExtra(PlaybackIntentContract.EXTRA_POSITION_MS, positionMs)
+                putExtra(PlaybackIntentContract.EXTRA_SEEK_POSITION, positionMs)
+            }
+        }
+        onResult?.invoke(ok)
+        return ok
+    }
+
+    fun setAutoPlayNext(enabled: Boolean): Boolean {
+        val ip = targetTvIp
+        if (!ip.isNullOrBlank()) {
+            val payload = JSONObject().apply {
+                put("action", "autoPlayNext")
+                put("enabled", enabled)
+            }
+            scope.launch { sendNetworkControl(ip, targetTvPort, payload) }
+            return true
+        }
+        return false
+    }
+
+    fun retry(): Boolean {
+        val ip = targetTvIp
+        if (!ip.isNullOrBlank()) {
+            val payload = JSONObject().apply { put("action", "retry") }
+            scope.launch { sendNetworkControl(ip, targetTvPort, payload) }
+            return true
+        }
+        return false
+    }
+
+    fun cancelCountdown(): Boolean {
+        val ip = targetTvIp
+        if (!ip.isNullOrBlank()) {
+            val payload = JSONObject().apply { put("action", "cancelCountdown") }
             scope.launch { sendNetworkControl(ip, targetTvPort, payload) }
             return true
         }
@@ -457,22 +718,43 @@ class BigEyesTvConnector(private val context: Context) {
 
                 val state = intent.getStringExtra(PlaybackIntentContract.EXTRA_STATE) ?: return
                 val seriesId = intent.getStringExtra(PlaybackIntentContract.EXTRA_SERIES_ID)
+                val seriesTitle = intent.getStringExtra(PlaybackIntentContract.EXTRA_SERIES_TITLE)
                 val epIndex = intent.getIntExtra(PlaybackIntentContract.EXTRA_EPISODE_INDEX, 0)
+                val epTitle = intent.getStringExtra(PlaybackIntentContract.EXTRA_EPISODE_TITLE)
                 val pos = intent.getLongExtra(PlaybackIntentContract.EXTRA_POSITION_MS, 0L)
                 val dur = intent.getLongExtra(PlaybackIntentContract.EXTRA_DURATION_MS, 0L)
+                val speed = intent.getFloatExtra(PlaybackIntentContract.EXTRA_SPEED, 1.0f)
+                val autoPlayNext = if (intent.hasExtra(PlaybackIntentContract.EXTRA_AUTO_PLAY_NEXT)) {
+                    intent.getBooleanExtra(PlaybackIntentContract.EXTRA_AUTO_PLAY_NEXT, true)
+                } else null
+                val errorMsg = intent.getStringExtra(PlaybackIntentContract.EXTRA_ERROR_MESSAGE)
 
                 Log.d(TAG, "Received TV state update: state=$state, seriesId=$seriesId, epIndex=$epIndex, pos=$pos")
-                onTvStatusUpdateListener?.invoke(state, seriesId, epIndex, pos, dur)
+                onTvStatusUpdateListener?.invoke(
+                    TvStatusUpdate(
+                        state = state,
+                        seriesId = seriesId,
+                        seriesTitle = seriesTitle,
+                        episodeIndex = epIndex,
+                        episodeTitle = epTitle,
+                        positionMs = pos,
+                        durationMs = dur,
+                        speed = speed,
+                        autoPlayNext = autoPlayNext,
+                        errorMessage = errorMsg
+                    )
+                )
             }
         }
 
         val filter = IntentFilter(PlaybackIntentContract.ACTION_STATUS_UPDATE)
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(statusReceiver, filter, Context.RECEIVER_EXPORTED)
-            } else {
-                context.registerReceiver(statusReceiver, filter)
-            }
+            ContextCompat.registerReceiver(
+                context,
+                statusReceiver,
+                filter,
+                ContextCompat.RECEIVER_EXPORTED
+            )
             isReceiverRegistered = true
             Log.d(TAG, "BigEyesTV status BroadcastReceiver registered")
         } catch (e: Throwable) {

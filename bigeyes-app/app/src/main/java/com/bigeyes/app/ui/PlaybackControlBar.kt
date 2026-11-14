@@ -26,6 +26,8 @@ class PlaybackControlBar(
     private val btnForward: Button = container.findViewById(R.id.btn_forward)
     private val btnNextEpisode: Button? = container.findViewById(R.id.btn_next_episode)
     private val btnSelectEpisode: Button? = container.findViewById(R.id.btn_select_episode)
+    private val btnSpeed: Button? = container.findViewById(R.id.btn_speed)
+    private val btnSwitchDevice: Button? = container.findViewById(R.id.btn_switch_device)
     private val btnStop: Button = container.findViewById(R.id.btn_stop)
 
     var onPreviousEpisodeListener: (() -> Unit)? = null
@@ -37,6 +39,12 @@ class PlaybackControlBar(
     var onStopClickListener: (() -> Unit)? = null
     var onCloseClickListener: (() -> Unit)? = null
     var onSeekToListener: ((Long) -> Unit)? = null
+    var onSpeedSelectedListener: ((Float) -> Unit)? = null
+    var onSwitchDeviceListener: (() -> Unit)? = null
+    var onExternalPlayPauseChanged: ((Boolean) -> Unit)? = null
+
+    private val speedPresets = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
+    private var currentSpeed: Float = 1.0f
 
     /**
      * DLNA polling callback. Feeds the polled renderer position back into PlaybackController
@@ -81,6 +89,22 @@ class PlaybackControlBar(
 
         btnClose.setOnClickListener {
             hide()
+            onCloseClickListener?.invoke()
+        }
+
+        btnSpeed?.setOnClickListener {
+            val currentIdx = speedPresets.indexOfFirst { kotlin.math.abs(it - currentSpeed) < 0.05f }
+            val nextSpeed = speedPresets[(currentIdx + 1) % speedPresets.size]
+            setPlaybackSpeed(nextSpeed)
+            onSpeedSelectedListener?.invoke(nextSpeed)
+        }
+
+        btnSwitchDevice?.setOnClickListener {
+            onSwitchDeviceListener?.invoke()
+        }
+
+        tvDevice.setOnClickListener {
+            onSwitchDeviceListener?.invoke()
         }
 
         btnRewind.setOnClickListener {
@@ -136,6 +160,22 @@ class PlaybackControlBar(
     /** true 时进度/状态由电视广播驱动，控制条不再轮询 DLNA AVTransport。 */
     fun setRemoteProgressSource(enabled: Boolean) {
         remoteProgressSource = enabled
+        btnSpeed?.visibility = if (enabled) View.VISIBLE else View.GONE
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        currentSpeed = speed
+        val label = if (speed == 1.0f || speed == 2.0f) {
+            "${speed.toInt()}.0x"
+        } else {
+            "${speed}x"
+        }
+        btnSpeed?.text = label
+        btnSpeed?.setTextColor(
+            container.context.getColor(
+                if (kotlin.math.abs(speed - 1.0f) < 0.05f) R.color.text_muted else R.color.brand_primary
+            )
+        )
     }
 
     fun setPlayPauseState(playing: Boolean) {
@@ -143,15 +183,25 @@ class PlaybackControlBar(
         btnPlayPause.text = if (playing) "暂停" else "播放"
     }
 
+    fun setBufferingState(buffering: Boolean) {
+        if (buffering) {
+            btnPlayPause.text = "缓冲中..."
+        } else {
+            btnPlayPause.text = if (isPlaying) "暂停" else "播放"
+        }
+    }
+
     fun setProgress(posMs: Long, durMs: Long) {
         if (isUserSeeking) return
-        currentPosSecs = (posMs / 1000).toInt()
-        currentTotalSecs = (durMs / 1000).toInt()
+        currentPosSecs = (posMs.coerceAtLeast(0L) / 1000).toInt()
+        currentTotalSecs = (durMs.coerceAtLeast(0L) / 1000).toInt()
         tvCurrentTime.text = formatSeconds(currentPosSecs)
         tvTotalTime.text = formatSeconds(currentTotalSecs)
         if (currentTotalSecs > 0) {
             val prog = ((currentPosSecs.toFloat() / currentTotalSecs.toFloat()) * 1000).toInt()
             seekBar.progress = prog.coerceIn(0, 1000)
+        } else {
+            seekBar.progress = 0
         }
     }
 
@@ -165,8 +215,9 @@ class PlaybackControlBar(
         if (deviceName != null) {
             tvDevice.text = deviceName
         } else if (tvDevice.text.isNullOrEmpty()) {
-            tvDevice.text = "DLNA 电视"
+            tvDevice.text = if (remoteProgressSource) "BigEyesTV" else "电视"
         }
+        btnSpeed?.visibility = if (remoteProgressSource) View.VISIBLE else View.GONE
         // Session changes re-enter show() every poll cycle; never restart an active poller.
         if (pollJob?.isActive != true) {
             startPolling()
@@ -213,6 +264,7 @@ class PlaybackControlBar(
 
                 isPlaying = state.trim().equals("PLAYING", ignoreCase = true)
                 btnPlayPause.text = if (isPlaying) "暂停" else "播放"
+                onExternalPlayPauseChanged?.invoke(isPlaying)
 
                 tvCurrentTime.text = relTime
                 tvTotalTime.text = duration
@@ -225,6 +277,8 @@ class PlaybackControlBar(
                 if (currentTotalSecs > 0) {
                     val prog = ((currentPosSecs.toFloat() / currentTotalSecs.toFloat()) * 1000).toInt()
                     seekBar.progress = prog.coerceIn(0, 1000)
+                } else {
+                    seekBar.progress = 0
                 }
             }
         } catch (_: Exception) {

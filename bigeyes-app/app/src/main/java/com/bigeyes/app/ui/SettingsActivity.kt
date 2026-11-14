@@ -176,8 +176,12 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         btnOpenGithub.setOnClickListener {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.douyin.com/"))
-            startActivity(intent)
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/CFM503/BigEyes"))
+                startActivity(intent)
+            } catch (_: Exception) {
+                Toast.makeText(this, "未找到可用浏览器打开 GitHub 仓库", Toast.LENGTH_SHORT).show()
+            }
         }
 
         btnSaveHomepage.setOnClickListener {
@@ -267,7 +271,16 @@ class SettingsActivity : AppCompatActivity() {
         val tvConnector = com.bigeyes.app.playback.tv.BigEyesTvConnector(this)
         val directSupported = tvConnector.isDirectCastSupported()
         val isInstalled = tvConnector.isTvAppInstalled()
+        val boundIp = tvConnector.targetTvIp
         when {
+            !boundIp.isNullOrBlank() -> {
+                tvBigEyesTvStatus.text = if (switchPreferBigEyesTv.isChecked) {
+                    "BigEyesTV 播放端: 已绑定局域网电视 ($boundIp:${tvConnector.targetTvPort})，直连投屏已启用"
+                } else {
+                    "BigEyesTV 播放端: 已发现 ($boundIp)，当前使用 DLNA 投屏 (可开启上方开关切换为直连)"
+                }
+                btnTestBigEyesTv.isEnabled = isInstalled
+            }
             directSupported -> {
                 tvBigEyesTvStatus.text = if (switchPreferBigEyesTv.isChecked) {
                     "BigEyesTV 播放端: 已就绪，直连投屏已启用 (含防盗链请求头透传与播放状态回传)"
@@ -281,7 +294,7 @@ class SettingsActivity : AppCompatActivity() {
                 btnTestBigEyesTv.isEnabled = true
             }
             else -> {
-                tvBigEyesTvStatus.text = "BigEyesTV 播放端: 未安装 (BigEyes 原生播放与 DLNA 投屏全功能正常运作)"
+                tvBigEyesTvStatus.text = "BigEyesTV 播放端: 未安装同机版或未绑定局域网电视 (投屏时可自动发现局域网 BigEyesTV)"
                 btnTestBigEyesTv.isEnabled = false
             }
         }
@@ -302,8 +315,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun loadServerAndVlcInfo() {
         val ip = NetworkUtils.getLocalIpAddress(this)
-        currentBaseUrl = "http://$ip:8765"
-        tvLocalServerInfo.text = "本机局域网 IP: $ip\n内嵌代理端口: 8765\n代理根地址: $currentBaseUrl\n线程池模式: 4~16 弹性线程池 (NanoHTTPD Pooled Runner)"
+        val proxyPort = CastingForegroundService.instance?.proxyServer?.listeningPort?.takeIf { it > 0 } ?: 8765
+        currentBaseUrl = "http://$ip:$proxyPort"
+        tvLocalServerInfo.text = "本机局域网 IP: $ip\n内嵌代理端口: $proxyPort\n代理根地址: $currentBaseUrl\n线程池模式: 4~32 弹性线程池 (NanoHTTPD Pooled Runner)"
 
         val activeSession = CastingForegroundService.instance?.streamManager?.getActiveSession()
         if (activeSession != null) {

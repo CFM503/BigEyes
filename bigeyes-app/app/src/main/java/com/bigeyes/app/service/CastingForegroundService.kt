@@ -151,13 +151,18 @@ class CastingForegroundService : Service() {
 
     private fun startProxyServer() {
         if (proxyServer == null) {
-            try {
-                proxyServer = EmbeddedProxyServer(this, streamManager, EmbeddedProxyServer.DEFAULT_PORT)
-                proxyServer?.start()
-                Log.i(TAG, "Embedded HTTP proxy server started on port ${EmbeddedProxyServer.DEFAULT_PORT}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed starting proxy server: ${e.message}")
+            for (port in EmbeddedProxyServer.DEFAULT_PORT until (EmbeddedProxyServer.DEFAULT_PORT + 10)) {
+                try {
+                    val server = EmbeddedProxyServer(this, streamManager, port)
+                    server.start()
+                    proxyServer = server
+                    Log.i(TAG, "Embedded HTTP proxy server started on port $port")
+                    return
+                } catch (e: Exception) {
+                    Log.w(TAG, "Proxy port $port unavailable: ${e.message}")
+                }
             }
+            Log.e(TAG, "Failed starting proxy server on fallback ports ${EmbeddedProxyServer.DEFAULT_PORT}..${EmbeddedProxyServer.DEFAULT_PORT + 9}")
         }
     }
 
@@ -170,6 +175,7 @@ class CastingForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForegroundNotification("正在准备投屏...", "BigEyes 正在为您提供本地流代理")
         val action = intent?.action ?: ACTION_START_CAST
         when (action) {
             ACTION_STOP_CAST -> {
@@ -179,7 +185,6 @@ class CastingForegroundService : Service() {
             ACTION_START_CAST -> {
                 @Suppress("DEPRECATION")
                 val candidate = intent?.getSerializableExtra(EXTRA_CANDIDATE) as? VideoCandidate
-                startForegroundNotification("正在准备投屏...", "BigEyes 正在为您提供本地流代理")
                 renewLocks()
                 if (candidate != null) {
                     castCandidate(candidate)
@@ -449,7 +454,10 @@ class CastingForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        instance = null
+        if (instance === this) {
+            instance = null
+        }
+        onAutoNextEpisodeListener = null
         playbackMonitorJob?.cancel()
         idleShutdownJob?.cancel()
         stopProxyServer()

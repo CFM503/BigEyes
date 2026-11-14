@@ -20,6 +20,9 @@ class PlaybackIntentContractTest {
         assertEquals("com.bigeyes.tv.action.NEXT", PlaybackIntentContract.ACTION_NEXT)
         assertEquals("com.bigeyes.tv.action.PREVIOUS", PlaybackIntentContract.ACTION_PREVIOUS)
         assertEquals("com.bigeyes.tv.action.SEEK", PlaybackIntentContract.ACTION_SEEK)
+        assertEquals("com.bigeyes.tv.action.PLAY_EPISODE", PlaybackIntentContract.ACTION_PLAY_EPISODE)
+        assertEquals("com.bigeyes.tv.action.UPDATE_EPISODE_URL", PlaybackIntentContract.ACTION_UPDATE_EPISODE_URL)
+        assertEquals("com.bigeyes.tv.action.SET_SPEED", PlaybackIntentContract.ACTION_SET_SPEED)
         assertEquals("com.bigeyes.tv.action.STATUS_UPDATE", PlaybackIntentContract.ACTION_STATUS_UPDATE)
     }
 
@@ -38,16 +41,21 @@ class PlaybackIntentContractTest {
         assertEquals("extra_seek_position", PlaybackIntentContract.EXTRA_SEEK_POSITION)
         assertEquals("extra_duration_ms", PlaybackIntentContract.EXTRA_DURATION_MS)
         assertEquals("extra_auto_play_next", PlaybackIntentContract.EXTRA_AUTO_PLAY_NEXT)
+        assertEquals("extra_resume_from_history", PlaybackIntentContract.EXTRA_RESUME_FROM_HISTORY)
+        assertEquals("extra_speed", PlaybackIntentContract.EXTRA_SPEED)
+        assertEquals("extra_error_message", PlaybackIntentContract.EXTRA_ERROR_MESSAGE)
         assertEquals("extra_state", PlaybackIntentContract.EXTRA_STATE)
         assertEquals("extra_header_referer", PlaybackIntentContract.EXTRA_HEADER_REFERER)
         assertEquals("extra_header_user_agent", PlaybackIntentContract.EXTRA_HEADER_USER_AGENT)
         assertEquals("extra_header_cookie", PlaybackIntentContract.EXTRA_HEADER_COOKIE)
+        assertEquals("extra_headers", PlaybackIntentContract.EXTRA_HEADERS)
     }
 
     @Test
     fun testStateConstants() {
         assertEquals("PLAYING", PlaybackIntentContract.STATE_PLAYING)
         assertEquals("PAUSED", PlaybackIntentContract.STATE_PAUSED)
+        assertEquals("BUFFERING", PlaybackIntentContract.STATE_BUFFERING)
         assertEquals("COMPLETED", PlaybackIntentContract.STATE_COMPLETED)
         assertEquals("STOPPED", PlaybackIntentContract.STATE_STOPPED)
         assertEquals("ERROR", PlaybackIntentContract.STATE_ERROR)

@@ -89,15 +89,34 @@ object M3U8Parser {
         return variants[minOf(1, variants.size - 1)]
     }
 
+    data class MediaPlaylistRewrite(
+        val playlist: String,
+        val segments: List<SegmentItem>,
+        val keys: List<KeyItem>,
+        val initMaps: List<String> = emptyList()
+    )
+
     fun rewriteMediaPlaylist(
         content: String,
         baseUrl: String,
         streamId: String,
         serverBaseUrl: String
     ): Triple<String, List<SegmentItem>, List<KeyItem>> {
+        val res = rewriteMediaPlaylistFull(content, baseUrl, streamId, serverBaseUrl)
+        return Triple(res.playlist, res.segments, res.keys)
+    }
+
+    fun rewriteMediaPlaylistFull(
+        content: String,
+        baseUrl: String,
+        streamId: String,
+        serverBaseUrl: String
+    ): MediaPlaylistRewrite {
         val segments = mutableListOf<SegmentItem>()
         val keys = mutableListOf<KeyItem>()
+        val initMaps = mutableListOf<String>()
         val keyUrlMap = mutableMapOf<String, Int>()
+        val mapUrlMap = mutableMapOf<String, Int>()
 
         val lines = content.lines()
         val rewrittenLines = mutableListOf<String>()
@@ -105,6 +124,8 @@ object M3U8Parser {
         var currentKeyIndex: Int? = null
         var currentDuration = 0.0f
         var currentTitle: String? = null
+        var currentByteRangeOffset = 0L
+        var pendingByteRangeHeader: String? = null
 
         for (line in lines) {
             val trimmed = line.trim()
@@ -118,7 +139,10 @@ object M3U8Parser {
                 val method = if (methodMatcher.find()) methodMatcher.group(1) ?: "AES-128" else "AES-128"
                 val iv = if (ivMatcher.find()) ivMatcher.group(1) else null
 
-                if (uriMatcher.find()) {
+                if (method.equals("NONE", ignoreCase = true)) {
+                    currentKeyIndex = null
+                    rewrittenLines.add(line)
+                } else if (uriMatcher.find()) {
                     val rawUri = uriMatcher.group(2) ?: ""
                     val absKeyUri = resolveUri(baseUrl, rawUri)
 
@@ -137,11 +161,46 @@ object M3U8Parser {
                     currentKeyIndex = keyIdx
 
                     val proxyKeyUrl = "$serverBaseUrl/stream/$streamId/key/$keyIdx.key"
-                    val rewrittenKeyLine = uriMatcher.replaceAll("URI=\"$proxyKeyUrl\"")
+                    val rewrittenKeyLine = uriMatcher.replaceAll(
+                        java.util.regex.Matcher.quoteReplacement("URI=\"$proxyKeyUrl\"")
+                    )
                     rewrittenLines.add(rewrittenKeyLine)
                 } else {
                     rewrittenLines.add(line)
                 }
+            } else if (trimmed.startsWith("#EXT-X-MAP")) {
+                val uriMatcher = KEY_URI_PATTERN.matcher(trimmed)
+                if (uriMatcher.find()) {
+                    val rawUri = uriMatcher.group(2) ?: ""
+                    val absMapUri = resolveUri(baseUrl, rawUri)
+                    val mapIdx = mapUrlMap.getOrPut(absMapUri) {
+                        val idx = initMaps.size
+                        initMaps.add(absMapUri)
+                        idx
+                    }
+                    val proxyMapUrl = "$serverBaseUrl/stream/$streamId/map/$mapIdx.mp4"
+                    val rewrittenMapLine = uriMatcher.replaceAll(
+                        java.util.regex.Matcher.quoteReplacement("URI=\"$proxyMapUrl\"")
+                    )
+                    rewrittenLines.add(rewrittenMapLine)
+                } else {
+                    rewrittenLines.add(line)
+                }
+            } else if (trimmed.startsWith("#EXT-X-BYTERANGE")) {
+                val spec = trimmed.substringAfter(":").trim()
+                val parts = spec.split("@")
+                val length = parts[0].toLongOrNull() ?: 0L
+                val offset = if (parts.size > 1) {
+                    parts[1].toLongOrNull() ?: currentByteRangeOffset
+                } else {
+                    currentByteRangeOffset
+                }
+                if (length > 0L) {
+                    val end = offset + length - 1L
+                    pendingByteRangeHeader = "bytes=$offset-$end"
+                    currentByteRangeOffset = offset + length
+                }
+                // Omit #EXT-X-BYTERANGE from rewritten playlist because StreamManager fetches the exact range
             } else if (trimmed.startsWith("#EXTINF")) {
                 val infMatcher = EXTINF_PATTERN.matcher(trimmed)
                 if (infMatcher.find()) {
@@ -161,9 +220,11 @@ object M3U8Parser {
                         uri = absSegUri,
                         duration = currentDuration,
                         title = currentTitle,
-                        keyIndex = currentKeyIndex
+                        keyIndex = currentKeyIndex,
+                        byteRange = pendingByteRangeHeader
                     )
                 )
+                pendingByteRangeHeader = null
 
                 val proxySegUrl = "$serverBaseUrl/stream/$streamId/seg/$segIdx.ts"
                 rewrittenLines.add(proxySegUrl)
@@ -174,6 +235,11 @@ object M3U8Parser {
             rewrittenLines.add(0, "#EXTM3U")
         }
 
-        return Triple(rewrittenLines.joinToString("\n") + "\n", segments, keys)
+        return MediaPlaylistRewrite(
+            playlist = rewrittenLines.joinToString("\n") + "\n",
+            segments = segments,
+            keys = keys,
+            initMaps = initMaps
+        )
     }
 }

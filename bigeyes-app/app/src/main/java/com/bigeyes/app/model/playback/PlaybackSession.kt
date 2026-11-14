@@ -7,6 +7,7 @@ data class PlaybackSession(
     val episodeList: List<Episode> = emptyList(),
     val currentEpisode: Episode? = null,
     val autoPlayNext: Boolean = true,
+    val playbackSpeed: Float = 1.0f,
     val playbackState: PlaybackState = PlaybackState.Idle,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,

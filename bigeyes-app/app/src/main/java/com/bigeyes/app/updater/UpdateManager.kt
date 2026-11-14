@@ -490,11 +490,16 @@ object UpdateManager {
                             }
                         }
 
-                        // Basic integrity validation: APK file must be at least 1MB
+                        // Exact Content-Length check (when known) + minimum APK size check
+                        if (totalBytes > 0 && bytesDownloaded != totalBytes) {
+                            destFile.delete()
+                            throw Exception("文件下载不完整 ($bytesDownloaded / $totalBytes 字节)")
+                        }
                         if (destFile.exists() && destFile.length() > 1024 * 1024) {
                             Log.i(TAG, "Successfully downloaded APK from ${source.name}, size: ${destFile.length()} bytes")
                             downloadSuccess = true
                         } else {
+                            destFile.delete()
                             throw Exception("Downloaded file is too small (${destFile.length()} bytes)")
                         }
                     }

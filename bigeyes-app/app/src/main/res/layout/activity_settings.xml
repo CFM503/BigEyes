@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F5F5F5">
+    android:background="@color/surface_bg">
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/toolbar"
@@ -13,7 +13,8 @@
         android:background="@color/brand_primary"
         app:title="设置与真机联调辅助"
         app:titleTextColor="@color/white"
-        app:navigationIcon="@android:drawable/ic_menu_revert" />
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:navigationIconTint="@color/white" />
 
     <ScrollView
         android:layout_width="match_parent"
@@ -29,6 +30,7 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/card_bg"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
                 android:layout_marginBottom="16dp">
@@ -52,13 +54,13 @@
                             android:text="软件版本与在线更新"
                             android:textStyle="bold"
                             android:textSize="16sp"
-                            android:textColor="@color/black" />
+                            android:textColor="@color/text_primary" />
 
                         <TextView
                             android:id="@+id/tv_app_version"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="v2.0.3"
+                            android:text="v2.2.3"
                             android:textColor="@color/brand_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -69,7 +71,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="支持自动检测 GitHub Releases 最新版本并一键下载更新安装包。"
-                        android:textColor="#666666"
+                        android:textColor="@color/text_secondary"
                         android:textSize="12sp"
                         android:layout_marginTop="6dp" />
 
@@ -104,6 +106,7 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/card_bg"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
                 android:layout_marginBottom="16dp">
@@ -127,12 +130,12 @@
                             android:text="默认主页与书签管理"
                             android:textStyle="bold"
                             android:textSize="16sp"
-                            android:textColor="@color/black" />
+                            android:textColor="@color/text_primary" />
 
                         <Button
                             android:id="@+id/btn_manage_bookmarks_in_settings"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
+                            android:layout_height="40dp"
                             android:text="管理书签"
                             style="@style/Widget.MaterialComponents.Button.TextButton" />
                     </LinearLayout>
@@ -141,7 +144,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="启动应用或点击主页按钮时加载的默认网址："
-                        android:textColor="#666666"
+                        android:textColor="@color/text_secondary"
                         android:textSize="12sp"
                         android:layout_marginTop="6dp" />
 
@@ -150,10 +153,12 @@
                         android:layout_width="match_parent"
                         android:layout_height="42dp"
                         android:hint="https://zip0.com/"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_secondary"
                         android:textSize="13sp"
                         android:inputType="textUri"
                         android:singleLine="true"
-                        android:background="#EFEFEF"
+                        android:background="@color/input_bg"
                         android:paddingHorizontal="10dp"
                         android:layout_marginTop="8dp" />
 
@@ -177,7 +182,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="恢复腾讯视频"
+                            android:text="恢复默认主页"
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
                     </LinearLayout>
 
@@ -188,6 +193,7 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/card_bg"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
                 android:layout_marginBottom="16dp">
@@ -204,7 +210,7 @@
                         android:text="剧集连播与 BigEyesTV 协同"
                         android:textStyle="bold"
                         android:textSize="16sp"
-                        android:textColor="@color/black" />
+                        android:textColor="@color/text_primary" />
 
                     <!-- Auto Play Next Switch -->
                     <LinearLayout
@@ -225,14 +231,14 @@
                                 android:layout_height="wrap_content"
                                 android:text="自动播放下一集"
                                 android:textStyle="bold"
-                                android:textColor="@color/black"
+                                android:textColor="@color/text_primary"
                                 android:textSize="14sp" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="单集播放完毕后自动倒计时 10 秒并连播下一集（可取消）"
-                                android:textColor="#666666"
+                                android:textColor="@color/text_secondary"
                                 android:textSize="12sp"
                                 android:layout_marginTop="2dp" />
                         </LinearLayout>
@@ -248,7 +254,7 @@
                     <View
                         android:layout_width="match_parent"
                         android:layout_height="1dp"
-                        android:background="#EEEEEE"
+                        android:background="@color/divider_color"
                         android:layout_marginVertical="12dp" />
 
                     <LinearLayout
@@ -268,14 +274,14 @@
                                 android:layout_height="wrap_content"
                                 android:text="优先直连 BigEyesTV 投屏"
                                 android:textStyle="bold"
-                                android:textColor="@color/black"
+                                android:textColor="@color/text_primary"
                                 android:textSize="14sp" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="安装了兼容版本 BigEyesTV 时，投屏直接启动电视端播放（支持防盗链请求头透传与播放状态回传）；关闭则始终走本地代理 DLNA 推送"
-                                android:textColor="#666666"
+                                android:text="局域网发现或同机安装了 BigEyesTV 时，投屏直接启动电视端播放（支持防盗链请求头透传与播放状态回传）；关闭则始终走本地代理 DLNA 推送"
+                                android:textColor="@color/text_secondary"
                                 android:textSize="12sp"
                                 android:layout_marginTop="2dp" />
                         </LinearLayout>
@@ -290,7 +296,7 @@
                     <View
                         android:layout_width="match_parent"
                         android:layout_height="1dp"
-                        android:background="#EEEEEE"
+                        android:background="@color/divider_color"
                         android:layout_marginVertical="12dp" />
 
                     <!-- BigEyesTV Status -->
@@ -299,7 +305,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="BigEyesTV 状态: 检测中..."
-                        android:textColor="#333333"
+                        android:textColor="@color/text_primary"
                         android:textSize="13sp" />
 
                     <LinearLayout
@@ -334,6 +340,7 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/card_bg"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
                 android:layout_marginBottom="16dp">
@@ -350,14 +357,14 @@
                         android:text="① 本地代理服务 (VLC 联调专用)"
                         android:textStyle="bold"
                         android:textSize="16sp"
-                        android:textColor="@color/black" />
+                        android:textColor="@color/text_primary" />
 
                     <TextView
                         android:id="@+id/tv_local_server_info"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="本机局域网 IP: 获取中...\n内嵌代理端口: 8765\n代理根地址: http://127.0.0.1:8765"
-                        android:textColor="#333333"
+                        android:textColor="@color/text_primary"
                         android:textSize="13sp"
                         android:layout_marginTop="6dp" />
 
@@ -369,7 +376,7 @@
                         android:textColor="@color/brand_primary"
                         android:textStyle="bold"
                         android:textSize="12sp"
-                        android:background="#E8F0FE"
+                        android:background="@color/input_bg"
                         android:padding="8dp"
                         android:layout_marginTop="8dp" />
 
@@ -404,6 +411,7 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/card_bg"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
                 android:layout_marginBottom="16dp">
@@ -420,7 +428,7 @@
                         android:text="② 最近一次嗅探候选与防盗链 Header"
                         android:textStyle="bold"
                         android:textSize="16sp"
-                        android:textColor="@color/black" />
+                        android:textColor="@color/text_primary" />
 
                     <TextView
                         android:id="@+id/tv_candidate_details"
@@ -428,10 +436,10 @@
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
                         android:typeface="monospace"
-                        android:background="#F8F9FA"
+                        android:background="@color/input_bg"
                         android:padding="8dp"
                         android:layout_marginTop="8dp"
-                        android:textColor="#222222"
+                        android:textColor="@color/text_primary"
                         android:text="暂无嗅探候选。在浏览器中播放视频后，此处将自动展示完整的 StreamID、原始 URL 及 Referer/UA/Cookie 上下文。" />
 
                     <LinearLayout
@@ -465,6 +473,7 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/card_bg"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
                 android:layout_marginBottom="16dp">
@@ -488,12 +497,12 @@
                             android:text="③ 局域网 DLNA 设备扫描 (Kodi/电视)"
                             android:textStyle="bold"
                             android:textSize="16sp"
-                            android:textColor="@color/black" />
+                            android:textColor="@color/text_primary" />
 
                         <Button
                             android:id="@+id/btn_add_manual_device"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
+                            android:layout_height="40dp"
                             android:text="手动添加"
                             style="@style/Widget.MaterialComponents.Button.TextButton"
                             android:layout_marginEnd="4dp" />
@@ -501,7 +510,7 @@
                         <Button
                             android:id="@+id/btn_rescan_dlna"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
+                            android:layout_height="40dp"
                             android:text="立即扫描"
                             style="@style/Widget.MaterialComponents.Button.TextButton" />
                     </LinearLayout>
@@ -512,10 +521,10 @@
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
                         android:typeface="monospace"
-                        android:background="#F8F9FA"
+                        android:background="@color/input_bg"
                         android:padding="8dp"
                         android:layout_marginTop="8dp"
-                        android:textColor="#333333"
+                        android:textColor="@color/text_primary"
                         android:text="点击“立即扫描”或等待后台定时探测局域网内开机的电视/Kodi 设备..." />
 
                 </LinearLayout>
@@ -525,6 +534,7 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/card_bg"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
                 android:layout_marginBottom="16dp">
@@ -541,13 +551,13 @@
                         android:text="④ 锁屏与后台保活保障"
                         android:textStyle="bold"
                         android:textSize="16sp"
-                        android:textColor="@color/black" />
+                        android:textColor="@color/text_primary" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="BigEyes 投屏期间自动维持 15 分钟动态滑动 WakeLock 并随分片请求自动续期，30 分钟无活动自动释放。建议开启后台无限制白名单以防电视断流。"
-                        android:textColor="#666666"
+                        android:textColor="@color/text_secondary"
                         android:textSize="12sp"
                         android:layout_marginTop="4dp" />
 
@@ -566,6 +576,7 @@
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                app:cardBackgroundColor="@color/card_bg"
                 app:cardCornerRadius="8dp"
                 app:cardElevation="2dp"
                 android:layout_marginBottom="16dp">
@@ -589,12 +600,12 @@
                             android:text="⑤ 分片缓存与抓包日志"
                             android:textStyle="bold"
                             android:textSize="16sp"
-                            android:textColor="@color/black" />
+                            android:textColor="@color/text_primary" />
 
                         <Button
                             android:id="@+id/btn_clear_logs"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
+                            android:layout_height="40dp"
                             android:text="清空抓包"
                             style="@style/Widget.MaterialComponents.Button.TextButton" />
                     </LinearLayout>
@@ -613,12 +624,12 @@
                             android:layout_weight="1"
                             android:text="缓存占用: 0 MB / 300 MB"
                             android:textSize="13sp"
-                            android:textColor="#555555" />
+                            android:textColor="@color/text_secondary" />
 
                         <Button
                             android:id="@+id/btn_clear_cache"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
+                            android:layout_height="40dp"
                             android:text="清理缓存"
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
                     </LinearLayout>
@@ -629,10 +640,10 @@
                         android:layout_height="wrap_content"
                         android:textSize="11sp"
                         android:typeface="monospace"
-                        android:background="#EFEFEF"
+                        android:background="@color/input_bg"
                         android:padding="8dp"
                         android:layout_marginTop="8dp"
-                        android:textColor="#333333"
+                        android:textColor="@color/text_primary"
                         android:text="暂无历史抓包记录。" />
 
                 </LinearLayout>

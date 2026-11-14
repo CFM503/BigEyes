@@ -66,20 +66,38 @@ object WebViewDownloadHelper {
 
     private fun decodeBase64(data: String): ByteArray {
         val cleanData = data.trim()
+        if (cleanData.isEmpty()) return ByteArray(0)
         try {
-            return java.util.Base64.getMimeDecoder().decode(cleanData)
-        } catch (_: Throwable) {}
-
-        try {
-            return java.util.Base64.getDecoder().decode(cleanData)
-        } catch (_: Throwable) {}
-
-        try {
-            val res = android.util.Base64.decode(cleanData, android.util.Base64.DEFAULT)
+            val res = Base64.decode(cleanData, Base64.DEFAULT)
             if (res != null) return res
         } catch (_: Throwable) {}
 
-        return ByteArray(0)
+        return decodeBase64Fallback(cleanData)
+    }
+
+    /** Pure-Kotlin RFC 4648 Base64 decoder used as fallback in pure-JVM unit tests where android.util.Base64 is stubbed. */
+    private fun decodeBase64Fallback(input: String): ByteArray {
+        val out = java.io.ByteArrayOutputStream((input.length * 3) / 4)
+        var buffer = 0
+        var bitsCollected = 0
+        for (ch in input) {
+            val val6 = when (ch) {
+                in 'A'..'Z' -> ch - 'A'
+                in 'a'..'z' -> ch - 'a' + 26
+                in '0'..'9' -> ch - '0' + 52
+                '+', '-' -> 62
+                '/', '_' -> 63
+                '=' -> break
+                else -> continue
+            }
+            buffer = (buffer shl 6) or val6
+            bitsCollected += 6
+            if (bitsCollected >= 8) {
+                bitsCollected -= 8
+                out.write((buffer shr bitsCollected) and 0xFF)
+            }
+        }
+        return out.toByteArray()
     }
 
     fun guessExtensionFromMimeType(mimeType: String): String {

@@ -162,4 +162,42 @@ class M3U8ParserTest {
         assertTrue(rewrittenText.contains("http://192.168.1.50:8765/stream/query_stream/seg/2.ts"))
         assertTrue(rewrittenText.contains("http://192.168.1.50:8765/stream/query_stream/seg/3.ts"))
     }
+
+    @Test
+    fun testFmp4InitMapAndByteRangeAndMethodNoneAndDollarInKeyUrl() {
+        val fmp4Playlist = """
+            #EXTM3U
+            #EXT-X-VERSION:7
+            #EXT-X-TARGETDURATION:6
+            #EXT-X-KEY:METHOD=NONE
+            #EXT-X-KEY:METHOD=AES-128,URI="https://keys.example.com/k?a=${'$'}1&b=2"
+            #EXT-X-MAP:URI="init.mp4",BYTERANGE="720@0"
+            #EXTINF:6.0,
+            #EXT-X-BYTERANGE:1024@720
+            main.m4s
+            #EXTINF:6.0,
+            #EXT-X-BYTERANGE:2048
+            main.m4s
+            #EXT-X-ENDLIST
+        """.trimIndent()
+
+        val rewrite = M3U8Parser.rewriteMediaPlaylistFull(
+            content = fmp4Playlist,
+            baseUrl = "https://cdn.example.com/hls/index.m3u8",
+            streamId = "fmp4_stream",
+            serverBaseUrl = "http://192.168.1.50:8765"
+        )
+
+        assertEquals(1, rewrite.keys.size)
+        assertEquals("https://keys.example.com/k?a=${'$'}1&b=2", rewrite.keys[0].uri)
+        assertTrue(rewrite.playlist.contains("http://192.168.1.50:8765/stream/fmp4_stream/key/0.key"))
+
+        assertEquals(1, rewrite.initMaps.size)
+        assertEquals("https://cdn.example.com/hls/init.mp4", rewrite.initMaps[0])
+        assertTrue(rewrite.playlist.contains("URI=\"http://192.168.1.50:8765/stream/fmp4_stream/map/0.mp4\""))
+
+        assertEquals(2, rewrite.segments.size)
+        assertEquals("bytes=720-1743", rewrite.segments[0].byteRange)
+        assertEquals("bytes=1744-3791", rewrite.segments[1].byteRange)
+    }
 }

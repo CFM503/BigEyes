@@ -54,15 +54,24 @@ class EmbeddedProxyServer(
     }
 
     init {
-        // Use bounded thread pool (4~16 threads) for NanoHTTPD request handling
+        // Use bounded thread pool (4~32 threads) for NanoHTTPD request handling
         setAsyncRunner(PooledAsyncRunner())
     }
+
+    private val directMediaClient: okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
+        .connectionPool(okhttp3.ConnectionPool(8, 30, TimeUnit.SECONDS))
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
 
     val serverPort: Int = port
 
     fun getProxyBaseUrl(): String {
         val lanIp = NetworkUtils.getLocalIpAddress(context)
-        return "http://$lanIp:$serverPort"
+        val effectivePort = if (listeningPort > 0) listeningPort else serverPort
+        return "http://$lanIp:$effectivePort"
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -85,6 +94,9 @@ class EmbeddedProxyServer(
                 }
                 uri.startsWith("/stream/") && (uri.contains("/seg/")) -> {
                     serveSegment(session, uri)
+                }
+                uri.startsWith("/stream/") && (uri.contains("/map/")) -> {
+                    serveInitMap(uri)
                 }
                 uri.startsWith("/stream/") && (uri.endsWith("/video.mp4") || uri.contains("/video.")) -> {
                     serveDirectMedia(session, uri)
@@ -150,19 +162,48 @@ class EmbeddedProxyServer(
 
         val rangeHeader = session.headers["range"]
         if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            if (data.isEmpty()) {
+                val resp = newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "")
+                resp.addHeader("Content-Range", "bytes */0")
+                addCorsHeaders(resp)
+                return resp
+            }
             try {
-                val rangeSpec = rangeHeader.substring(6).trim()
-                val rangeParts = rangeSpec.split('-')
-                val start = rangeParts[0].toLongOrNull() ?: 0L
-                val end = if (rangeParts.size > 1 && rangeParts[1].isNotEmpty()) {
-                    rangeParts[1].toLongOrNull() ?: (data.size - 1L)
+                val rangeSpec = rangeHeader.substring(6).trim().substringBefore(',')
+                val rangeParts = rangeSpec.split('-', limit = 2)
+                val totalSize = data.size.toLong()
+                val start: Long
+                val end: Long
+                if (rangeParts[0].isEmpty()) {
+                    // Suffix range: bytes=-N
+                    val suffixLen = rangeParts.getOrNull(1)?.toLongOrNull() ?: 0L
+                    if (suffixLen <= 0L) {
+                        val resp = newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "")
+                        resp.addHeader("Content-Range", "bytes */$totalSize")
+                        addCorsHeaders(resp)
+                        return resp
+                    }
+                    start = (totalSize - suffixLen).coerceAtLeast(0L)
+                    end = totalSize - 1L
                 } else {
-                    data.size - 1L
+                    start = rangeParts[0].toLongOrNull() ?: 0L
+                    val reqEnd = if (rangeParts.size > 1 && rangeParts[1].isNotEmpty()) {
+                        rangeParts[1].toLongOrNull() ?: (totalSize - 1L)
+                    } else {
+                        totalSize - 1L
+                    }
+                    end = reqEnd.coerceAtMost(totalSize - 1L)
                 }
-                val safeStart = start.coerceIn(0L, (data.size - 1L).coerceAtLeast(0L))
-                val safeEnd = end.coerceIn(safeStart, (data.size - 1L).coerceAtLeast(0L))
-                val length = (safeEnd - safeStart + 1).toInt()
-                val partialData = data.copyOfRange(safeStart.toInt(), safeStart.toInt() + length)
+
+                if (start < 0L || start >= totalSize || end < start) {
+                    val resp = newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "")
+                    resp.addHeader("Content-Range", "bytes */$totalSize")
+                    addCorsHeaders(resp)
+                    return resp
+                }
+
+                val length = (end - start + 1).toInt()
+                val partialData = data.copyOfRange(start.toInt(), start.toInt() + length)
 
                 val resp = newFixedLengthResponse(
                     Response.Status.PARTIAL_CONTENT,
@@ -170,7 +211,7 @@ class EmbeddedProxyServer(
                     ByteArrayInputStream(partialData),
                     length.toLong()
                 )
-                resp.addHeader("Content-Range", "bytes $safeStart-$safeEnd/${data.size}")
+                resp.addHeader("Content-Range", "bytes $start-$end/$totalSize")
                 resp.addHeader("Accept-Ranges", "bytes")
                 addCorsHeaders(resp)
                 return resp
@@ -184,6 +225,30 @@ class EmbeddedProxyServer(
             Response.Status.OK,
             "video/mp2t",
             stream,
+            data.size.toLong()
+        )
+        resp.addHeader("Accept-Ranges", "bytes")
+        addCorsHeaders(resp)
+        return resp
+    }
+
+    private fun serveInitMap(uri: String): Response {
+        val parts = uri.trim('/').split('/')
+        if (parts.size < 4) {
+            return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid map path")
+        }
+        val streamId = parts[1]
+        val mapRaw = parts[3].substringBefore('.')
+        val mapIndex = mapRaw.toIntOrNull()
+            ?: return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid map index")
+
+        val data = runBlocking {
+            streamManager.getInitMap(streamId, mapIndex)
+        }
+        val resp = newFixedLengthResponse(
+            Response.Status.OK,
+            "video/mp4",
+            ByteArrayInputStream(data),
             data.size.toLong()
         )
         resp.addHeader("Accept-Ranges", "bytes")
@@ -205,12 +270,10 @@ class EmbeddedProxyServer(
 
         return runBlocking {
             try {
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .readTimeout(30, TimeUnit.SECONDS)
-                    .build()
-
                 val reqBuilder = okhttp3.Request.Builder().url(targetUrl)
+                if (session.method == Method.HEAD) {
+                    reqBuilder.head()
+                }
                 streamSession.referer?.let { reqBuilder.addHeader("Referer", it) }
                 streamSession.userAgent?.let { reqBuilder.addHeader("User-Agent", it) }
                 streamSession.cookie?.let { reqBuilder.addHeader("Cookie", it) }
@@ -218,16 +281,58 @@ class EmbeddedProxyServer(
                     reqBuilder.addHeader("Range", rangeHeader)
                 }
 
-                val upstreamResp = client.newCall(reqBuilder.build()).execute()
+                val upstreamResp = directMediaClient.newCall(reqBuilder.build()).execute()
+                if (!upstreamResp.isSuccessful) {
+                    val code = upstreamResp.code
+                    val errMsg = "Upstream HTTP $code"
+                    upstreamResp.close()
+                    val status = when (code) {
+                        403 -> Response.Status.FORBIDDEN
+                        404 -> Response.Status.NOT_FOUND
+                        416 -> Response.Status.RANGE_NOT_SATISFIABLE
+                        in 400..499 -> Response.Status.BAD_REQUEST
+                        else -> Response.Status.INTERNAL_ERROR
+                    }
+                    val errResp = newFixedLengthResponse(status, MIME_PLAINTEXT, errMsg)
+                    addCorsHeaders(errResp)
+                    return@runBlocking errResp
+                }
+
                 val contentType = upstreamResp.header("Content-Type") ?: "video/mp4"
-                val bodyStream = upstreamResp.body?.byteStream() ?: ByteArrayInputStream(ByteArray(0))
-                val contentLength = upstreamResp.body?.contentLength() ?: -1L
+                val body = upstreamResp.body
+                val contentLength = body?.contentLength() ?: -1L
+                val rawStream = body?.byteStream()
+                if (session.method == Method.HEAD || rawStream == null) {
+                    upstreamResp.close()
+                    val headResp = newFixedLengthResponse(
+                        if (upstreamResp.code == 206) Response.Status.PARTIAL_CONTENT else Response.Status.OK,
+                        contentType,
+                        ""
+                    )
+                    if (contentLength >= 0) {
+                        headResp.addHeader("Content-Length", contentLength.toString())
+                    }
+                    upstreamResp.header("Content-Range")?.let { headResp.addHeader("Content-Range", it) }
+                    headResp.addHeader("Accept-Ranges", "bytes")
+                    addCorsHeaders(headResp)
+                    return@runBlocking headResp
+                }
+
+                val closingStream = object : java.io.FilterInputStream(rawStream) {
+                    override fun close() {
+                        try {
+                            super.close()
+                        } finally {
+                            upstreamResp.close()
+                        }
+                    }
+                }
 
                 val status = if (upstreamResp.code == 206) Response.Status.PARTIAL_CONTENT else Response.Status.OK
                 val resp = if (contentLength >= 0) {
-                    newFixedLengthResponse(status, contentType, bodyStream, contentLength)
+                    newFixedLengthResponse(status, contentType, closingStream, contentLength)
                 } else {
-                    newChunkedResponse(status, contentType, bodyStream)
+                    newChunkedResponse(status, contentType, closingStream)
                 }
 
                 upstreamResp.header("Content-Range")?.let { resp.addHeader("Content-Range", it) }
@@ -236,7 +341,9 @@ class EmbeddedProxyServer(
                 resp
             } catch (e: Exception) {
                 Log.e(TAG, "Error proxying direct media: ${e.message}", e)
-                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Proxy error: ${e.message}")
+                val errResp = newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Proxy error: ${e.message}")
+                addCorsHeaders(errResp)
+                errResp
             }
         }
     }

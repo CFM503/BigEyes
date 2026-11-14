@@ -1,5 +1,25 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.2.3] - 2026-11-15 (跨端全量审计、UI/图标与兼容性全面加固)
+
+### 🔗 跨端伴侣协议与联动增强
+* **无损分集地址推送 (`updateEpisodeUrl`)**：新增 `/bigeyes/api/control` `updateEpisodeUrl` 动作与 `PlaybackIntentContract.ACTION_UPDATE_EPISODE_URL` 契约，并在 `/bigeyes/api/play` 队列补齐 `episodeTitle`、`duration`、单集 `headers` 及 `resumeFromHistory`，后台解析出未就绪剧集直链后无损更新 TV 播放，不再重建队列或重置倍速/连播状态。
+* **状态与错误双向对齐**：`BigEyesTvConnector` 与 `PlaybackController` 同步解析 `BUFFERING`、`errorMessage`、倍速与连播状态；移除主线程 `runBlocking`，改为异步网络请求与 `/bigeyes/api/info` 探测校验。
+* **消除 DLNA 设备劫持**：用户在设备选择弹窗中选中非 BigEyesTV 的 DLNA 设备时不再被强制重定向至 BigEyesTV，并支持投屏过程中切换设备。
+
+### 🛠 代理、服务与安全性修复
+* **代理与 M3U8 解析强化**：`EmbeddedProxyServer` 复用共享 `OkHttpClient`、正确处理 `HEAD` 与无效/后缀 `Range`（416）并透传上游错误；`M3U8Parser` 支持 `#EXT-X-MAP`、`#EXT-X-BYTERANGE`、`METHOD=NONE` 及含 `$` 密钥 URI 转义；`StreamManager` 增加会话 LRU 驱逐；`DlnaController` 补充 XML 转义与 MIME 推断；`NetworkUtils` 过滤 VPN/虚拟网卡。
+* **Android 兼容性与稳定性**：`CastingForegroundService` 在 `onStartCommand` 早期拉起前台通知并支持 `8765..8774` 端口回退；`SnifferWebViewClient` 增加 SSL 确认弹窗与 `didCrash()` API 26 保护；`WebViewDownloadHelper` 改用 `android.util.Base64`；`BigEyesTvConnector` 注册广播补充 `RECEIVER_EXPORTED` 标志；`UpdateManager` 校验 APK 下载字节完整性。
+
+### 📱 手机端 UI、控件与图标完善
+* **播控条与主界面优化**：重构 `view_playback_control.xml` 为双行紧凑布局，新增倍速切换与换设备按钮；分离「关闭控制条」与「停止投屏」逻辑；使用圆形计数角标 `bg_badge_circle` 并修复角标计数重置与未收藏书签图标浅色模式对比度缺陷。
+* **主题、矢量图标与设置页修复**：补全 `values-night/colors.xml` 夜间模式语义色，新增高清矢量导航/设置/关闭/电视图标；修复 `SettingsActivity` GitHub 链接误指问题并同步展示动态代理端口与线程池参数。
+
+### 🧪 工程与版本
+* 单测 51 项全部通过，`lintDebug` 0 错误；版本号升级：`versionCode 35 / versionName 2.2.3`。
+
+---
+
 ## [v2.2.1] - 2026-10-31 (手机与TV全量剧集互通联动、全量选集与上下集闭环、伴侣参数对齐)
 
 ### 🚀 选集与上下集全链路互通 (P0)

@@ -12,4 +12,10 @@
     <color name="control_bar_bg">#EE1E1E1E</color>
     <color name="dialog_background">#FF212121</color>
     <color name="text_muted">#FFAAAAAA</color>
+    <color name="surface_bg">#FFF5F5F5</color>
+    <color name="card_bg">#FFFFFFFF</color>
+    <color name="input_bg">#FFEFEFEF</color>
+    <color name="divider_color">#FFE0E0E0</color>
+    <color name="text_primary">#FF212121</color>
+    <color name="text_secondary">#FF666666</color>
 </resources>

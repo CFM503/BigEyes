@@ -74,14 +74,20 @@ class StreamFetcher {
         referer: String? = null,
         userAgent: String? = null,
         cookie: String? = null,
-        maxRetries: Int = 3
+        maxRetries: Int = 3,
+        byteRangeHeader: String? = null
     ): ByteArray = withContext(Dispatchers.IO) {
         val backoffs = listOf(500L, 1000L, 2000L)
         var lastException: Exception? = null
 
         for (attempt in 0..maxRetries) {
             try {
-                val request = buildRequest(url, referer, userAgent, cookie)
+                val baseReq = buildRequest(url, referer, userAgent, cookie)
+                val request = if (!byteRangeHeader.isNullOrBlank()) {
+                    baseReq.newBuilder().header("Range", byteRangeHeader).build()
+                } else {
+                    baseReq
+                }
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         throw Exception("HTTP ${response.code} fetching segment: $url")

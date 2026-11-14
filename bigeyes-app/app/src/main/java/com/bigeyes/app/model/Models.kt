@@ -39,6 +39,7 @@ data class StreamSession(
     var selectedVariantIndex: Int = 0,
     var segments: List<SegmentItem> = emptyList(),
     var keys: List<KeyItem> = emptyList(),
+    var initMaps: List<String> = emptyList(),
     var lastAccessedSeg: Int = 0
 )
 

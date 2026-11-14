@@ -31,7 +31,7 @@
             android:layout_height="wrap_content"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:textColor="@color/black"
+            android:textColor="@color/text_primary"
             android:maxLines="1"
             android:ellipsize="end"
             android:text="腾讯视频" />
@@ -41,7 +41,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="12sp"
-            android:textColor="#888888"
+            android:textColor="@color/text_secondary"
             android:maxLines="1"
             android:ellipsize="end"
             android:text="https://v.qq.com"
@@ -50,32 +50,32 @@
 
     <ImageButton
         android:id="@+id/btn_set_as_home"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@drawable/ic_home"
-        app:tint="#666666"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        app:srcCompat="@drawable/ic_home"
+        app:tint="@color/text_secondary"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="设为默认主页"
-        android:layout_marginStart="4dp" />
+        android:layout_marginStart="2dp" />
 
     <ImageButton
         android:id="@+id/btn_edit_bookmark"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@drawable/ic_edit"
-        app:tint="#666666"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        app:srcCompat="@drawable/ic_edit"
+        app:tint="@color/text_secondary"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="编辑书签"
-        android:layout_marginStart="4dp" />
+        android:layout_marginStart="2dp" />
 
     <ImageButton
         android:id="@+id/btn_delete_bookmark"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@drawable/ic_delete"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        app:srcCompat="@drawable/ic_delete"
         app:tint="#E53935"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="删除书签"
-        android:layout_marginStart="4dp" />
+        android:layout_marginStart="2dp" />
 
 </LinearLayout>

@@ -168,4 +168,32 @@ class SsdpScannerTest {
         assertTrue(device?.isBigEyesTv == true)
         assertEquals(7000, device?.apiPort)
     }
+
+    @Test
+    fun testNonBigEyesDeviceOnPort7000IsNotMarkedAsBigEyesTv() {
+        val genericDeviceXml = """<?xml version="1.0" encoding="utf-8"?>
+            <root xmlns="urn:schemas-upnp-org:device-1-0">
+                <device>
+                    <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+                    <friendlyName>Generic Speaker</friendlyName>
+                    <manufacturer>OtherBrand</manufacturer>
+                    <modelName>Speaker7000</modelName>
+                    <UDN>uuid:generic-speaker-7000</UDN>
+                    <serviceList>
+                        <service>
+                            <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+                            <controlURL>/upnp/control/AVTransport</controlURL>
+                        </service>
+                    </serviceList>
+                </device>
+            </root>
+        """.trimIndent()
+
+        val locationUrl = "http://192.168.1.199:7000/description.xml"
+        val device = SsdpScanner.parseDeviceXml(genericDeviceXml, locationUrl)
+
+        assertNotNull(device)
+        assertEquals("Generic Speaker", device?.name)
+        assertFalse("Port 7000 alone must not misclassify non-BigEyes device", device?.isBigEyesTv == true)
+    }
 }

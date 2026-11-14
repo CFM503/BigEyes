@@ -75,8 +75,8 @@ class SsdpScanner {
                 val isBigEyes = friendlyName.contains("BigEyes", ignoreCase = true) ||
                                 modelName.contains("BigEyes", ignoreCase = true) ||
                                 manufacturer.contains("BigEyes", ignoreCase = true) ||
-                                parsedUrl.port == 7000
-                val targetPort = if (parsedUrl.port > 0) parsedUrl.port else 7000
+                                udn.contains("bigeyes", ignoreCase = true)
+                val targetPort = if (isBigEyes && parsedUrl.port > 0) parsedUrl.port else 7000
 
                 var avControlUrl: String? = null
                 var renderingControlUrl: String? = null
@@ -240,7 +240,49 @@ class SsdpScanner {
                 return@withContext dev
             }
         }
+
+        // Fallback: probe BigEyes Companion REST /bigeyes/api/info directly
+        val hostPart = trimmed
+            .removePrefix("http://")
+            .removePrefix("https://")
+            .substringBefore("/")
+        val companionUrl = if (hostPart.contains(":")) {
+            "http://$hostPart/bigeyes/api/info"
+        } else {
+            "http://$hostPart:7000/bigeyes/api/info"
+        }
+        probeCompanionInfo(companionUrl)?.let { return@withContext it }
+
         return@withContext null
+    }
+
+    private fun probeCompanionInfo(infoUrl: String): DlnaDevice? {
+        return try {
+            val req = Request.Builder().url(infoUrl).build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body?.string() ?: return null
+                val json = org.json.JSONObject(body)
+                val uri = URI(infoUrl)
+                val ip = uri.host ?: return null
+                val port = if (uri.port > 0) uri.port else 7000
+                val name = json.optString("deviceName", "").ifBlank {
+                    json.optString("name", "BigEyesTV")
+                }
+                val udn = json.optString("udn", "").ifBlank { "bigeyes-$ip-$port" }
+                DlnaDevice(
+                    id = udn,
+                    name = name,
+                    ip = ip,
+                    locationUrl = "http://$ip:$port/description.xml",
+                    avTransportControlUrl = "http://$ip:$port/upnp/control/AVTransport",
+                    isBigEyesTv = true,
+                    apiPort = port
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun extractLocation(response: String): String? {

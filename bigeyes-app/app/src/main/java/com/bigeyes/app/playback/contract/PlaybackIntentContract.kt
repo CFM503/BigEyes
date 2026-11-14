@@ -21,12 +21,15 @@ object PlaybackIntentContract {
     // Commands sent from BigEyes to BigEyesTV
     const val ACTION_PLAY = "com.bigeyes.tv.action.PLAY"
     const val ACTION_PLAY_QUEUE = "com.bigeyes.tv.action.PLAY_QUEUE"
+    const val ACTION_PLAY_EPISODE = "com.bigeyes.tv.action.PLAY_EPISODE"
+    const val ACTION_UPDATE_EPISODE_URL = "com.bigeyes.tv.action.UPDATE_EPISODE_URL"
     const val ACTION_PAUSE = "com.bigeyes.tv.action.PAUSE"
     const val ACTION_RESUME = "com.bigeyes.tv.action.RESUME"
     const val ACTION_STOP = "com.bigeyes.tv.action.STOP"
     const val ACTION_NEXT = "com.bigeyes.tv.action.NEXT"
     const val ACTION_PREVIOUS = "com.bigeyes.tv.action.PREVIOUS"
     const val ACTION_SEEK = "com.bigeyes.tv.action.SEEK"
+    const val ACTION_SET_SPEED = "com.bigeyes.tv.action.SET_SPEED"
 
     // Status broadcast sent from BigEyesTV back to BigEyes
     const val ACTION_STATUS_UPDATE = "com.bigeyes.tv.action.STATUS_UPDATE"
@@ -45,7 +48,11 @@ object PlaybackIntentContract {
     const val EXTRA_SEEK_POSITION = "extra_seek_position"
     const val EXTRA_DURATION_MS = "extra_duration_ms"
     const val EXTRA_AUTO_PLAY_NEXT = "extra_auto_play_next"
-    const val EXTRA_STATE = "extra_state" // PLAYING, PAUSED, COMPLETED, STOPPED, ERROR
+    const val EXTRA_RESUME_FROM_HISTORY = "extra_resume_from_history"
+    const val EXTRA_SPEED = "extra_speed"
+    const val EXTRA_ERROR_MESSAGE = "extra_error_message"
+    const val EXTRA_HEADERS = "extra_headers"
+    const val EXTRA_STATE = "extra_state" // PLAYING, PAUSED, BUFFERING, COMPLETED, STOPPED, ERROR
     const val EXTRA_HEADER_REFERER = "extra_header_referer"
     const val EXTRA_HEADER_USER_AGENT = "extra_header_user_agent"
     const val EXTRA_HEADER_COOKIE = "extra_header_cookie"
@@ -53,6 +60,7 @@ object PlaybackIntentContract {
     // States
     const val STATE_PLAYING = "PLAYING"
     const val STATE_PAUSED = "PAUSED"
+    const val STATE_BUFFERING = "BUFFERING"
     const val STATE_COMPLETED = "COMPLETED"
     const val STATE_STOPPED = "STOPPED"
     const val STATE_ERROR = "ERROR"

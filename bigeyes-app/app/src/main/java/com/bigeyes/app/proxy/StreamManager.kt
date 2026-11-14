@@ -11,6 +11,8 @@ class StreamManager(context: Context) {
 
     companion object {
         private const val TAG = "StreamManager"
+        private const val MAX_SESSIONS = 16
+        private val DIRECT_MEDIA_EXTENSIONS = setOf("mp4", "m4v", "mkv", "flv", "webm", "mov", "avi")
     }
 
     private val fetcher = StreamFetcher()
@@ -18,9 +20,35 @@ class StreamManager(context: Context) {
     private val prefetcher = PrefetchManager(fetcher, cache, concurrency = 2, window = 4)
 
     private val sessions = ConcurrentHashMap<String, StreamSession>()
+    private val sessionOrder = java.util.Collections.synchronizedList(mutableListOf<String>())
     private val rawMediaPlaylists = ConcurrentHashMap<String, String>()
     private val rawBaseUrls = ConcurrentHashMap<String, String>()
     private var activeStreamId: String? = null
+
+    private fun isLikelyDirectMediaUrl(url: String): Boolean {
+        val cleanPath = url.substringBefore('?').substringBefore('#').lowercase()
+        val ext = cleanPath.substringAfterLast('.', "")
+        return ext in DIRECT_MEDIA_EXTENSIONS
+    }
+
+    private fun registerSession(session: StreamSession, rawPlaylist: String? = null, rawBaseUrl: String? = null) {
+        if (rawPlaylist != null) rawMediaPlaylists[session.streamId] = rawPlaylist
+        if (rawBaseUrl != null) rawBaseUrls[session.streamId] = rawBaseUrl
+        sessions[session.streamId] = session
+        synchronized(sessionOrder) {
+            sessionOrder.remove(session.streamId)
+            sessionOrder.add(session.streamId)
+            while (sessionOrder.size > MAX_SESSIONS) {
+                val oldestId = sessionOrder.removeAt(0)
+                if (oldestId != activeStreamId) {
+                    sessions.remove(oldestId)
+                    rawMediaPlaylists.remove(oldestId)
+                    rawBaseUrls.remove(oldestId)
+                    prefetcher.cancelStream(oldestId)
+                }
+            }
+        }
+    }
 
     fun getActiveSession(): StreamSession? {
         val id = activeStreamId ?: return null
@@ -41,12 +69,25 @@ class StreamManager(context: Context) {
         val streamId = UUID.randomUUID().toString().substring(0, 8)
         Log.i(TAG, "Creating new stream session $streamId for URL: $url")
 
-        // 1. Fetch root playlist
-        val rootContent = try {
-            fetcher.fetchText(url, referer, userAgent, cookie)
-        } catch (e: Exception) {
-            ""
+        if (isLikelyDirectMediaUrl(url)) {
+            Log.i(TAG, "Direct media extension detected. Treating as direct media stream: $url")
+            val session = StreamSession(
+                streamId = streamId,
+                originalUrl = url,
+                referer = referer,
+                userAgent = userAgent,
+                cookie = cookie,
+                title = title,
+                isMaster = false,
+                isDirectMedia = true
+            )
+            registerSession(session)
+            switchActiveStream(streamId)
+            return session
         }
+
+        // 1. Fetch root playlist (rethrow HTTP/network errors rather than silently misclassifying as direct media)
+        val rootContent = fetcher.fetchText(url, referer, userAgent, cookie)
         val isM3U8 = rootContent.contains("#EXTM3U", ignoreCase = true) ||
                      rootContent.contains("#EXTINF", ignoreCase = true) ||
                      rootContent.contains("#EXT-X-STREAM-INF", ignoreCase = true)
@@ -62,13 +103,8 @@ class StreamManager(context: Context) {
                 isMaster = false,
                 isDirectMedia = true
             )
-            sessions[streamId] = session
-            activeStreamId?.let { oldId ->
-                if (oldId != streamId) {
-                    prefetcher.cancelStream(oldId)
-                }
-            }
-            activeStreamId = streamId
+            registerSession(session)
+            switchActiveStream(streamId)
             return session
         }
         val isMaster = M3U8Parser.isMasterPlaylist(rootContent)
@@ -80,9 +116,21 @@ class StreamManager(context: Context) {
             Log.i(TAG, "Stream $streamId is Master Playlist. Parsing variants...")
             variants = M3U8Parser.parseMasterPlaylist(rootContent, url)
             val defaultVariant = M3U8Parser.selectDefaultVariant(variants)
-            Log.i(TAG, "Selected default variant: ${defaultVariant.resolution ?: "default"} (${defaultVariant.uri})")
-            mediaBaseUrl = defaultVariant.uri
-            mediaContent = fetcher.fetchText(defaultVariant.uri, referer, userAgent, cookie)
+            val orderedCandidates = listOf(defaultVariant) + variants.filter { it.uri != defaultVariant.uri }
+            var fetchedVariantText: String? = null
+            var lastVariantErr: Exception? = null
+            for (variant in orderedCandidates) {
+                try {
+                    Log.i(TAG, "Trying variant: ${variant.resolution ?: "default"} (${variant.uri})")
+                    fetchedVariantText = fetcher.fetchText(variant.uri, referer, userAgent, cookie)
+                    mediaBaseUrl = variant.uri
+                    break
+                } catch (e: Exception) {
+                    lastVariantErr = e
+                    Log.w(TAG, "Variant fetch failed (${variant.uri}): ${e.message}")
+                }
+            }
+            mediaContent = fetchedVariantText ?: throw (lastVariantErr ?: Exception("All variants failed for $url"))
         }
 
         val session = StreamSession(
@@ -96,19 +144,19 @@ class StreamManager(context: Context) {
             variants = variants
         )
 
-        rawMediaPlaylists[streamId] = mediaContent
-        rawBaseUrls[streamId] = mediaBaseUrl
-        sessions[streamId] = session
+        registerSession(session, mediaContent, mediaBaseUrl)
+        switchActiveStream(streamId)
 
-        // Cancel previous prefetch tasks
+        return session
+    }
+
+    private fun switchActiveStream(newStreamId: String) {
         activeStreamId?.let { oldId ->
-            if (oldId != streamId) {
+            if (oldId != newStreamId) {
                 prefetcher.cancelStream(oldId)
             }
         }
-        activeStreamId = streamId
-
-        return session
+        activeStreamId = newStreamId
     }
 
     fun getRewrittenM3U8(streamId: String, serverBaseUrl: String): String {
@@ -119,22 +167,23 @@ class StreamManager(context: Context) {
         val rawContent = rawMediaPlaylists[streamId] ?: throw NoSuchElementException("Raw content for $streamId not found")
         val baseUrl = rawBaseUrls[streamId] ?: session.originalUrl
 
-        val (rewrittenText, segments, keys) = M3U8Parser.rewriteMediaPlaylist(
+        val rewritten = M3U8Parser.rewriteMediaPlaylistFull(
             content = rawContent,
             baseUrl = baseUrl,
             streamId = streamId,
             serverBaseUrl = serverBaseUrl
         )
 
-        session.segments = segments
-        session.keys = keys
+        session.segments = rewritten.segments
+        session.keys = rewritten.keys
+        session.initMaps = rewritten.initMaps
 
         // Warm up prefetch for first few segments
-        if (segments.isNotEmpty()) {
+        if (rewritten.segments.isNotEmpty()) {
             prefetcher.triggerPrefetch(session, currentSegIndex = -1)
         }
 
-        return rewrittenText
+        return rewritten.playlist
     }
 
     suspend fun getSegment(streamId: String, segIndex: Int): ByteArray {
@@ -153,7 +202,8 @@ class StreamManager(context: Context) {
                 url = seg.uri,
                 referer = session.referer,
                 userAgent = session.userAgent,
-                cookie = session.cookie
+                cookie = session.cookie,
+                byteRangeHeader = seg.byteRange
             )
             cache.put(cacheKey, data)
         } else {
@@ -163,6 +213,26 @@ class StreamManager(context: Context) {
         session.lastAccessedSeg = segIndex
         prefetcher.triggerPrefetch(session, segIndex)
 
+        return data
+    }
+
+    suspend fun getInitMap(streamId: String, mapIndex: Int): ByteArray {
+        val session = sessions[streamId] ?: throw NoSuchElementException("Stream session $streamId not found")
+        if (mapIndex < 0 || mapIndex >= session.initMaps.size) {
+            throw IndexOutOfBoundsException("Init map index $mapIndex out of bounds (${session.initMaps.size})")
+        }
+        val mapUri = session.initMaps[mapIndex]
+        val cacheKey = "${streamId}_map_${mapIndex}.mp4"
+        var data = cache.get(cacheKey)
+        if (data == null) {
+            data = fetcher.fetchBytes(
+                url = mapUri,
+                referer = session.referer,
+                userAgent = session.userAgent,
+                cookie = session.cookie
+            )
+            cache.put(cacheKey, data)
+        }
         return data
     }
 
@@ -192,6 +262,7 @@ class StreamManager(context: Context) {
     fun release() {
         prefetcher.release()
         sessions.clear()
+        synchronized(sessionOrder) { sessionOrder.clear() }
         rawMediaPlaylists.clear()
         rawBaseUrls.clear()
     }

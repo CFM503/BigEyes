@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -175,24 +176,63 @@ class SnifferWebViewClient(
         }
     }
 
+    private val approvedSslHosts = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     override fun onReceivedSslError(
         view: WebView?,
         handler: SslErrorHandler?,
         error: SslError?
     ) {
-        Log.w(TAG, "SSL error encountered: ${error?.primaryError} on URL: ${error?.url}")
-        try {
-            // Safely proceed SSL errors to prevent white screen / block on Cloudflare/custom cert sites
+        val errorUrl = error?.url
+        val host = try {
+            if (!errorUrl.isNullOrBlank()) java.net.URI(errorUrl).host?.lowercase() else null
+        } catch (_: Exception) {
+            null
+        }
+        Log.w(TAG, "SSL error encountered: ${error?.primaryError} on URL: $errorUrl")
+
+        if (host != null && approvedSslHosts.contains(host)) {
             handler?.proceed()
-        } catch (e: Throwable) {
-            Log.e(TAG, "Error proceeding SSL handler: ${e.message}")
-            super.onReceivedSslError(view, handler, error)
+            return
+        }
+
+        val activity = view?.context as? android.app.Activity
+        val isMainPage = host != null && try {
+            val webHost = view?.url?.let { java.net.URI(it).host?.lowercase() }
+            webHost == null || webHost == host
+        } catch (_: Exception) {
+            false
+        }
+
+        if (activity != null && !activity.isFinishing && !activity.isDestroyed && isMainPage) {
+            activity.runOnUiThread {
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
+                    .setTitle("安全证书警告")
+                    .setMessage("网站 ${host ?: errorUrl ?: ""} 的 HTTPS 证书无效或不受信任，是否仍要继续访问？")
+                    .setPositiveButton("继续访问") { _, _ ->
+                        if (host != null) approvedSslHosts.add(host)
+                        handler?.proceed()
+                    }
+                    .setNegativeButton("取消") { _, _ ->
+                        handler?.cancel()
+                    }
+                    .setOnCancelListener {
+                        handler?.cancel()
+                    }
+                    .show()
+            }
+        } else {
+            handler?.cancel()
         }
     }
 
     override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
         val didCrash = try {
-            detail?.didCrash() ?: false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                detail?.didCrash() ?: false
+            } else {
+                false
+            }
         } catch (_: Throwable) {
             false
         }
