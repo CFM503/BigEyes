@@ -117,7 +117,12 @@ class EpisodeQueue {
             if (idx >= 0) {
                 val old = _items[idx]
                 if (old.playUrl.isNullOrBlank() && !newEp.playUrl.isNullOrBlank()) {
-                    _items[idx] = old.copy(playUrl = newEp.playUrl, playHeaders = newEp.playHeaders)
+                    // Carry the resolve timestamp too, otherwise hasValidPlayUrl() judges freshness wrongly.
+                    _items[idx] = old.copy(
+                        playUrl = newEp.playUrl,
+                        playHeaders = newEp.playHeaders,
+                        resolvedAt = newEp.resolvedAt
+                    )
                     changed = true
                 }
             } else {

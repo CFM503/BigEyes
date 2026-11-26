@@ -52,7 +52,9 @@ class BigEyesTvConnector(private val context: Context) {
         val durationMs: Long = 0L,
         val speed: Float = 1.0f,
         val autoPlayNext: Boolean? = null,
-        val errorMessage: String? = null
+        val errorMessage: String? = null,
+        /** True when the phone lost the TV connection (not a playback error reported by the TV). */
+        val isConnectionLost: Boolean = false
     )
 
     var onTvStatusUpdateListener: ((TvStatusUpdate) -> Unit)? = null
@@ -483,7 +485,8 @@ class BigEyesTvConnector(private val context: Context) {
                             onTvStatusUpdateListener?.invoke(
                                 TvStatusUpdate(
                                     state = PlaybackIntentContract.STATE_ERROR,
-                                    errorMessage = "与大屏端连接已断开，请检查网络或重新投屏"
+                                    errorMessage = "与大屏端连接已断开，请检查网络或重新投屏",
+                                    isConnectionLost = true
                                 )
                             )
                         }

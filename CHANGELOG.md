@@ -1,5 +1,24 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.2.4] - 2026-11-26 (修复投屏偶发 404)
+
+### 🐛 BigEyesTV 直连
+* **不再下发过期地址**：`PlaybackController.buildTvQueue` 对非当前集按 `hasValidPlayUrl()` 过滤，过期地址以空地址交给 TV，切到该集时由手机重新解析推送。
+* **切集先推地址再播放**：`switchEpisodeOnBoundTv` 移除解析前提前下发的 `playEpisode`，改为 `updateEpisodeUrl` 成功后再 `playEpisode`，失败回退完整重投。
+* **TV 报错自动恢复**：TV 掌管队列时上报播放错误，手机绕过缓存重新解析当前集并带出错位置推送续播；每集仅自动重试一次，连接断开（`isConnectionLost`）不触发。
+* **新鲜度修正**：`EpisodeQueue.mergeEpisodes` 补地址时同步 `resolvedAt`。
+
+### 🛠 DLNA 本地代理
+* **会话持久化与自动恢复**：`StreamManager` 将会话描述写入私有目录（最多 32 个、12 小时有效），服务重启或被驱逐后按原清晰度自动恢复，并发请求仅恢复一次。
+* **按最近使用驱逐**：正在播放的会话不会被挤出内存；未请求播放列表直接请求分片时按需重建分片表。
+* **明确 404**：`EmbeddedProxyServer` 对恢复后仍不存在的会话统一返回 404。
+
+### 🧪 工程与版本
+* 新增 `StreamManagerPersistenceTest`、`EpisodeQueueFreshnessTest` 共 14 项单测；`StreamFetcher` 可替换以便测试。
+* 版本号升级：`versionCode 36 / versionName 2.2.4`。
+
+---
+
 ## [v2.2.3] - 2026-11-15 (跨端全量审计、UI/图标与兼容性全面加固)
 
 ### 🔗 跨端伴侣协议与联动增强

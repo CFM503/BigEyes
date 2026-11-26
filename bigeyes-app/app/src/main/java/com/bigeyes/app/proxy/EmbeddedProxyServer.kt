@@ -119,6 +119,12 @@ class EmbeddedProxyServer(
                     resp
                 }
             }
+        } catch (e: NoSuchElementException) {
+            // Session unknown even after trying to restore it from disk (expired or never created).
+            Log.w(TAG, "Stream not found for $uri: ${e.message}")
+            val resp = newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Stream session not found")
+            addCorsHeaders(resp)
+            return resp
         } catch (e: Exception) {
             Log.e(TAG, "Error handling request $uri: ${e.message}", e)
             val resp = newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Internal Server Error: ${e.message}")
@@ -135,7 +141,9 @@ class EmbeddedProxyServer(
         val streamId = parts[1]
         val baseUrl = getProxyBaseUrl()
 
-        val rewrittenM3U8 = streamManager.getRewrittenM3U8(streamId, baseUrl)
+        val rewrittenM3U8 = runBlocking {
+            streamManager.getRewrittenM3U8(streamId, baseUrl)
+        }
         val resp = newFixedLengthResponse(
             Response.Status.OK,
             "application/vnd.apple.mpegurl",
@@ -262,7 +270,8 @@ class EmbeddedProxyServer(
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Invalid media path")
         }
         val streamId = parts[1]
-        val streamSession = streamManager.getSession(streamId)
+        // Restores the session from disk if the casting service was restarted meanwhile.
+        val streamSession = runBlocking { streamManager.ensureSession(streamId) }
             ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Stream session not found")
 
         val targetUrl = streamSession.originalUrl

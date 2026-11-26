@@ -48,7 +48,8 @@ class PlaybackController(
     val countdownSeconds: StateFlow<Int> = _countdownSeconds.asStateFlow()
 
     private var countdownJob: Job? = null
-    private var isPlayingOnBigEyesTv: Boolean = false
+    private var isPlayingOnBigEyesTv: Boolean = false
+
     private var hasSeenActiveTvState: Boolean = false
 
     /** True while BigEyesTV owns a fully resolved queue and advances episodes on its own. */
@@ -66,6 +67,9 @@ class PlaybackController(
     private var lastHistoryPersistAt = 0L
     private var resumeFromHistoryNext: Boolean = true
     private var resolvingMirrorIndex: Int = -1
+
+    /** Episode id already auto-recovered after a BigEyesTV playback error (one attempt per episode). */
+    private var tvErrorRecoveryEpisodeId: String? = null
 
     /** Read-only view of the active cast target, used by the UI to mirror BigEyesTV status. */
     val isCastingToBigEyesTv: Boolean
@@ -186,6 +190,10 @@ class PlaybackController(
 
     /**
      * Non-destructive episode switch when BigEyesTV already holds the active series queue.
+     *
+     * The fresh URL is always pushed to the TV (updateEpisodeUrl) BEFORE asking it to play the
+     * episode, so the TV never starts an episode with a stale (expired, 404) address it was
+     * handed earlier.
      */
     private fun switchEpisodeOnBoundTv(episode: Episode, index: Int) {
         if (episode.hasValidPlayUrl()) {
@@ -204,17 +212,16 @@ class PlaybackController(
                 positionMs = 0L,
                 durationMs = episode.durationMs
             )
-            if (tvConnector.playEpisode(index)) {
-                return
-            }
+            pushUrlThenPlayOnTv(item, index)
+            return
         }
-        // Unresolved episode or playEpisode failed: resolve and push via updateEpisodeUrl
+        // Unresolved or expired episode: resolve first, then push the fresh URL and play.
+        // Do NOT call playEpisode before resolving, otherwise the TV plays its stale URL (404).
         _session.value = _session.value.copy(
             playbackState = PlaybackState.Resolving(episode),
             currentEpisode = episode,
             currentIndex = index
         )
-        tvConnector.playEpisode(index)
         scope.launch {
             val result = videoResolver.resolveEpisodeStream(episode, queue.size)
             result.fold(
@@ -231,11 +238,7 @@ class PlaybackController(
                         playbackState = PlaybackState.Buffering(updatedItem, 0L, updatedEp.durationMs),
                         positionMs = 0L
                     )
-                    tvConnector.updateEpisodeUrl(index, playbackItem.playUrl, playbackItem.headers, 0L) { ok ->
-                        if (!ok) {
-                            dispatchPlayback(updatedItem)
-                        }
-                    }
+                    pushUrlThenPlayOnTv(updatedItem, index)
                 },
                 onFailure = { error ->
                     _session.value = _session.value.copy(
@@ -247,6 +250,21 @@ class PlaybackController(
                     )
                 }
             )
+        }
+    }
+
+    /**
+     * Sends the fresh play URL for [index] to BigEyesTV, then switches the TV to that episode.
+     * Falls back to a full re-dispatch when the TV did not accept the URL update.
+     */
+    private fun pushUrlThenPlayOnTv(item: PlaybackItem, index: Int) {
+        tvConnector.updateEpisodeUrl(index, item.playUrl, item.headers) { ok ->
+            if (ok && tvConnector.playEpisode(index)) {
+                Log.i(TAG, "Pushed fresh URL and switched BigEyesTV to episode $index")
+            } else {
+                Log.w(TAG, "BigEyesTV did not accept fresh URL for episode $index, re-dispatching")
+                dispatchPlayback(item)
+            }
         }
     }
 
@@ -413,16 +431,27 @@ class PlaybackController(
      * Builds the entire episode queue for BigEyesTV handover.
      * Includes all episodes metadata so TV can render full episode selector and previous/next buttons.
      * The active episode carries the resolved playUrl, while yet-unresolved episodes retain blank/cached URLs.
+     *
+     * Non-current episodes whose cached URL has expired (see [Episode.hasValidPlayUrl]) are handed
+     * over with a blank URL instead: signed stream URLs expire and the TV would get 404. A blank URL
+     * makes the phone resolve a fresh one when the TV switches to it (see [mirrorTvEpisode]).
      */
     fun buildTvQueue(): List<Episode>? {
         val items = queue.items
         if (items.size <= 1) return null
+        val currentIdx = queue.currentIndex
         return items.mapIndexed { index, episode ->
+            val handoverUrl = when {
+                index == currentIdx && episode.playUrl.isNullOrBlank() ->
+                    (_session.value.playbackState as? PlaybackState.Playing)?.item?.playUrl ?: episode.playUrl
+                index == currentIdx -> episode.playUrl
+                episode.hasValidPlayUrl() -> episode.playUrl
+                else -> null
+            }
             episode.copy(
                 episodeIndex = index,
-                playUrl = if (index == queue.currentIndex && episode.playUrl.isNullOrBlank()) {
-                    (_session.value.playbackState as? PlaybackState.Playing)?.item?.playUrl ?: episode.playUrl
-                } else episode.playUrl
+                playUrl = handoverUrl,
+                playHeaders = if (handoverUrl.isNullOrBlank()) emptyMap() else episode.playHeaders
             )
         }
     }
@@ -751,6 +780,7 @@ class PlaybackController(
         when (update.state) {
             PlaybackIntentContract.STATE_PLAYING -> {
                 hasSeenActiveTvState = true
+                tvErrorRecoveryEpisodeId = null
                 applyTvPlayingState(true)
             }
             PlaybackIntentContract.STATE_PAUSED -> {
@@ -783,6 +813,7 @@ class PlaybackController(
                 isPlayingOnBigEyesTv = false
                 hasSeenActiveTvState = false
                 resolvingMirrorIndex = -1
+                tvErrorRecoveryEpisodeId = null
                 countdownJob?.cancel()
                 _session.value = _session.value.copy(
                     playbackState = PlaybackState.Idle,
@@ -790,6 +821,9 @@ class PlaybackController(
                 )
             }
             PlaybackIntentContract.STATE_ERROR -> {
+                if (!update.isConnectionLost && tryRecoverTvPlaybackError(update)) {
+                    return
+                }
                 _session.value = _session.value.copy(
                     playbackState = PlaybackState.Error(
                         message = update.errorMessage ?: "大屏播放出错，请重试",
@@ -800,6 +834,88 @@ class PlaybackController(
             }
             else -> {}
         }
+    }
+
+    /**
+     * BigEyesTV failed to play an episode from the queue it owns. The most common cause is an
+     * expired signed stream URL (upstream 404) when the TV auto-advanced on its own. Re-resolve the
+     * episode on the phone (bypassing the cached URL) and push the fresh URL with the error-time
+     * playhead; the TV restarts the current episode when it is in ERROR and receives a new URL.
+     *
+     * Only one automatic attempt per episode, so a genuinely broken source still surfaces the error.
+     *
+     * @return true when a recovery attempt was started (the caller should not show the error yet).
+     */
+    private fun tryRecoverTvPlaybackError(update: BigEyesTvConnector.TvStatusUpdate): Boolean {
+        if (!tvOwnsQueue) return false
+        val index = update.episodeIndex
+        val episode = queue.items.getOrNull(index) ?: return false
+        if (episode.pageUrl.isNullOrBlank()) return false
+        // A recovery is already running: keep waiting instead of surfacing the repeated ERROR polls.
+        if (resolvingMirrorIndex == index) return true
+        if (tvErrorRecoveryEpisodeId == episode.id) return false
+
+        tvErrorRecoveryEpisodeId = episode.id
+        resolvingMirrorIndex = index
+        val resumeAtMs = update.positionMs.coerceAtLeast(0L)
+        Log.w(TAG, "BigEyesTV error on episode $index (${update.errorMessage}), re-resolving fresh URL")
+
+        _session.value = _session.value.copy(
+            playbackState = PlaybackState.Resolving(episode),
+            currentEpisode = episode,
+            currentIndex = index
+        )
+
+        scope.launch {
+            fun finishRecovery() {
+                if (resolvingMirrorIndex == index) {
+                    resolvingMirrorIndex = -1
+                }
+            }
+            try {
+                // Drop the cached URL so the resolver sniffs a fresh one instead of reusing it.
+                val result = videoResolver.resolveEpisodeStream(episode.copy(playUrl = null), queue.size)
+                result.fold(
+                    onSuccess = { resolvedItem ->
+                        queue.updateEpisodePlayUrl(index, resolvedItem.playUrl, resolvedItem.headers)
+                        tvConnector.updateEpisodeUrl(
+                            episodeIndex = index,
+                            playUrl = resolvedItem.playUrl,
+                            headers = resolvedItem.headers,
+                            positionMs = resumeAtMs
+                        ) { ok ->
+                            // Cleared only after the TV answered, so stale ERROR polls in between
+                            // do not flash the error state on the phone.
+                            finishRecovery()
+                            if (!ok) {
+                                showTvRecoveryFailed(episode, "大屏播放出错，请重试")
+                            } else {
+                                Log.i(TAG, "Pushed re-resolved URL to BigEyesTV for episode $index at ${resumeAtMs}ms")
+                            }
+                        }
+                    },
+                    onFailure = { error ->
+                        finishRecovery()
+                        Log.w(TAG, "Re-resolve after TV error failed for episode $index: ${error.message}")
+                        showTvRecoveryFailed(episode, error.message ?: "大屏播放出错，请重试")
+                    }
+                )
+            } catch (e: CancellationException) {
+                finishRecovery()
+                throw e
+            }
+        }
+        return true
+    }
+
+    private fun showTvRecoveryFailed(episode: Episode, message: String) {
+        _session.value = _session.value.copy(
+            playbackState = PlaybackState.Error(
+                message = message,
+                canRetry = true,
+                failedEpisode = episode
+            )
+        )
     }
 
     private fun currentItemFromState(state: PlaybackState): PlaybackItem? = when (state) {

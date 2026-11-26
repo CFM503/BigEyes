@@ -10,7 +10,8 @@ import okhttp3.Request
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
-class StreamFetcher {
+/** Open so unit tests can substitute a fake network layer. */
+open class StreamFetcher {
 
     companion object {
         private const val TAG = "StreamFetcher"
@@ -54,7 +55,7 @@ class StreamFetcher {
         return builder.build()
     }
 
-    suspend fun fetchText(
+    open suspend fun fetchText(
         url: String,
         referer: String? = null,
         userAgent: String? = null,
@@ -69,7 +70,7 @@ class StreamFetcher {
         }
     }
 
-    suspend fun fetchBytes(
+    open suspend fun fetchBytes(
         url: String,
         referer: String? = null,
         userAgent: String? = null,
