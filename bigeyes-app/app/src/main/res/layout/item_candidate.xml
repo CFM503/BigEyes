@@ -16,6 +16,15 @@
         android:text="视频候选 1" />
 
     <TextView
+        android:id="@+id/tv_item_tags"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/brand_secondary"
+        android:textSize="12sp"
+        android:layout_marginTop="2dp"
+        android:text="HLS · 主列表 · 1080p/720p" />
+
+    <TextView
         android:id="@+id/tv_item_url"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

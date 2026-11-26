@@ -1,5 +1,20 @@
 # BigEyes 修改日志 (Changelog)
 
+## [v2.2.5] - 2026-11-26 (投屏候选列表优化)
+
+### ✨ 候选列表合并与排序
+* **同一视频合并为一条**：新增 `CandidateRanker`，HLS 主列表与其清晰度子列表合并（投屏使用主列表）；忽略 token、时间戳、签名等易变参数，仅参数不同的同一地址只保留最新一条。
+* **类型标注**：候选项新增说明行，显示格式（HLS/MP4…）、主列表、已见清晰度及合并数量。
+* **按正片可能性排序**：主列表优先；含 trailer/preview/teaser/promo/preroll 等关键词的标为“疑似广告/预告”并置后、灰显，且不并入正片。
+* **网页内切换影片**：`SnifferWebViewClient.doUpdateVisitedHistory` 识别单页站点切换，旧候选标为“上一页面”并置后；仅播放进度参数变化不视为换片。
+* 合并后仅剩一条时直接投屏，不再弹出选择框；非推荐项标题改用主题色，适配夜间模式。
+
+### 🧪 工程与版本
+* 新增 `CandidateRankerTest` 15 项，`CandidateManagerTest` 新增 2 项。
+* 版本号升级：`versionCode 37 / versionName 2.2.5`。
+
+---
+
 ## [v2.2.4] - 2026-11-26 (修复投屏偶发 404)
 
 ### 🐛 BigEyesTV 直连

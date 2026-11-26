@@ -44,6 +44,10 @@ class SnifferWebViewClient(
         }
     }
 
+    /** True between onPageStarted and onPageFinished of the main frame. */
+    @Volatile
+    private var isMainFrameLoading = false
+
     private fun isStaticNonMediaUrl(rawUrl: String): Boolean {
         val clean = rawUrl.substringBefore('?').substringBefore('#')
         val dotIdx = clean.lastIndexOf('.')
@@ -115,8 +119,9 @@ class SnifferWebViewClient(
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
+        isMainFrameLoading = true
         if (url != null && !url.startsWith("about:") && !url.startsWith("javascript:")) {
-            CandidateManager.clear()
+            CandidateManager.onPageStarted(url)
             onPageUrlChanged?.invoke(url)
         }
         onPageLoadingChanged?.invoke(true)
@@ -125,6 +130,7 @@ class SnifferWebViewClient(
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
+        isMainFrameLoading = false
         onPageLoadingChanged?.invoke(false)
         onPageTitleChanged?.invoke(view?.title)
         if (url != null && !url.startsWith("about:") && !url.startsWith("javascript:")) {
@@ -139,6 +145,25 @@ class SnifferWebViewClient(
         }
 
         injectSnifferScript(view)
+    }
+
+    /**
+     * Also called for history.pushState/replaceState. Single-page video sites switch movies this
+     * way without onPageStarted, so candidates of the previous movie would otherwise stay on top.
+     */
+    override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+        super.doUpdateVisitedHistory(view, url, isReload)
+        if (url.isNullOrBlank() || url.startsWith("about:") || url.startsWith("javascript:")) return
+        if (isMainFrameLoading) {
+            // Redirects / commit of a normal page load: same page, just remember its final URL.
+            CandidateManager.onPageCommitted(url)
+            return
+        }
+        if (CandidateManager.onInPageNavigation(url)) {
+            onPageUrlChanged?.invoke(url)
+            // The sniffer script survives pushState, but re-inject in case the SPA rebuilt the player.
+            injectSnifferScript(view)
+        }
     }
 
     private fun injectSnifferScript(view: WebView?) {
@@ -158,6 +183,7 @@ class SnifferWebViewClient(
     ) {
         super.onReceivedError(view, request, error)
         if (request?.isForMainFrame == true) {
+            isMainFrameLoading = false
             onPageLoadingChanged?.invoke(false)
             val desc = try { error?.description } catch (_: Throwable) { null }
             val code = try { error?.errorCode } catch (_: Throwable) { null }
