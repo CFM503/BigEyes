@@ -1,19 +1,25 @@
 package com.bigeyes.app.ui
 
-import android.app.Dialog
 import android.content.Context
+import android.content.res.ColorStateList
 import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
-import android.widget.BaseAdapter
-import android.widget.ListView
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.bigeyes.app.R
-import com.bigeyes.app.browser.CandidateRanker
 import com.bigeyes.app.browser.CandidateManager
+import com.bigeyes.app.browser.CandidateRanker
 import com.bigeyes.app.model.VideoCandidate
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.bigeyes.app.utils.AppPreferences
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
 
+/**
+ * Bottom sheet listing the sniffed videos of the current page (already ranked by
+ * [CandidateRanker]): the most likely main video is enlarged as 「推荐」, ads/trailers and
+ * leftovers from the previous page are dimmed. Stream URLs only appear with 显示技术信息.
+ */
 class CandidateDialog(
     private val context: Context,
     private val candidates: List<VideoCandidate>,
@@ -21,70 +27,71 @@ class CandidateDialog(
     private val onSelected: (VideoCandidate) -> Unit
 ) {
     fun show() {
-        val listView = ListView(context)
-        val adapter = CandidateAdapter(context, candidates)
-        listView.adapter = adapter
+        val dialog = BottomSheetDialog(context)
+        val view = LayoutInflater.from(context).inflate(R.layout.sheet_candidates, null)
+        dialog.setContentView(view)
 
-        val dialog = MaterialAlertDialogBuilder(context)
-            .setTitle(R.string.select_candidate_title)
-            .setView(listView)
-            .setNegativeButton("取消", null)
-            .setNeutralButton("清空重探") { _, _ ->
-                CandidateManager.clear()
-                onClearRequested?.invoke()
+        val showTech = AppPreferences.isShowTechInfo(context)
+        view.findViewById<TextView>(R.id.tv_sheet_subtitle).text =
+            "在这个页面找到 ${candidates.size} 个视频"
+
+        val container = view.findViewById<LinearLayout>(R.id.container_sheet_items)
+        val inflater = LayoutInflater.from(context)
+        candidates.forEachIndexed { position, candidate ->
+            val item = inflater.inflate(R.layout.item_candidate, container, false)
+            bind(item, candidate, position, showTech)
+            item.setOnClickListener {
+                dialog.dismiss()
+                onSelected(candidate)
             }
-            .create()
-
-        listView.setOnItemClickListener { _, _, position, _ ->
-            dialog.dismiss()
-            onSelected(candidates[position])
+            container.addView(item)
         }
 
+        view.findViewById<View>(R.id.btn_sheet_secondary).setOnClickListener {
+            dialog.dismiss()
+            CandidateManager.clear()
+            onClearRequested?.invoke()
+        }
+        view.findViewById<View>(R.id.btn_sheet_cancel).setOnClickListener { dialog.dismiss() }
+
+        dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        dialog.behavior.skipCollapsed = true
         dialog.show()
     }
 
-    private class CandidateAdapter(
-        private val context: Context,
-        private val items: List<VideoCandidate>
-    ) : BaseAdapter() {
+    private fun bind(item: View, candidate: VideoCandidate, position: Int, showTech: Boolean) {
+        val recommended = position == 0 && !candidate.isSuspicious && !candidate.isStale
+        val dimmed = candidate.isSuspicious || candidate.isStale
 
-        override fun getCount(): Int = items.size
-        override fun getItem(position: Int): Any = items[position]
-        override fun getItemId(position: Int): Long = position.toLong()
+        item.setBackgroundResource(if (recommended) R.drawable.bg_option_recommended else R.drawable.bg_option)
+        item.alpha = if (dimmed) 0.6f else 1.0f
 
-        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
-            val view = convertView ?: LayoutInflater.from(context).inflate(R.layout.item_candidate, parent, false)
-            val candidate = items[position]
-
-            val tvTitle = view.findViewById<TextView>(R.id.tv_item_title)
-            val tvTags = view.findViewById<TextView>(R.id.tv_item_tags)
-            val tvUrl = view.findViewById<TextView>(R.id.tv_item_url)
-            val tvTime = view.findViewById<TextView>(R.id.tv_item_time)
-
-            // The list is already ranked: first entry is the most likely main video.
-            val recommended = position == 0 && !candidate.isSuspicious && !candidate.isStale
-            if (recommended) {
-                tvTitle.text = "【推荐】${candidate.displayTitle}"
-                tvTitle.setTextColor(context.getColor(R.color.brand_primary))
-            } else {
-                tvTitle.text = "【候选 ${position + 1}】${candidate.displayTitle}"
-                tvTitle.setTextColor(context.getColor(R.color.text_primary))
+        val frameIcon = item.findViewById<View>(R.id.frame_item_icon)
+        val ivIcon = item.findViewById<ImageView>(R.id.iv_item_icon)
+        frameIcon.setBackgroundResource(if (recommended) R.drawable.bg_icon_tile_surface else R.drawable.bg_icon_tile)
+        ivIcon.setImageResource(
+            when {
+                candidate.isSuspicious -> R.drawable.ic_megaphone
+                candidate.isStale -> R.drawable.ic_history
+                else -> R.drawable.ic_movie
             }
+        )
+        ivIcon.imageTintList = ColorStateList.valueOf(
+            context.getColor(if (recommended) R.color.brand_primary else R.color.icon_secondary)
+        )
 
-            tvTags.text = CandidateRanker.describe(candidate)
-            tvTags.setTextColor(
-                context.getColor(
-                    if (candidate.isSuspicious || candidate.isStale) R.color.text_muted else R.color.brand_secondary
-                )
-            )
+        item.findViewById<TextView>(R.id.tv_item_title).text = candidate.displayTitle
+        item.findViewById<View>(R.id.tv_item_badge).visibility = if (recommended) View.VISIBLE else View.GONE
 
-            tvUrl.text = candidate.url
-            tvTime.text = "嗅探时间: ${candidate.formattedTime}"
+        item.findViewById<TextView>(R.id.tv_item_tags).text =
+            if (showTech) CandidateRanker.describe(candidate) else CandidateRanker.describeSimple(candidate)
 
-            // Greyed out: kept selectable, but visually de-emphasised.
-            view.alpha = if (candidate.isSuspicious || candidate.isStale) 0.6f else 1.0f
-
-            return view
+        val tvTech = item.findViewById<TextView>(R.id.tv_item_tech)
+        if (showTech) {
+            tvTech.visibility = View.VISIBLE
+            tvTech.text = "${candidate.url}\n嗅探时间 ${candidate.formattedTime}"
+        } else {
+            tvTech.visibility = View.GONE
         }
     }
 }

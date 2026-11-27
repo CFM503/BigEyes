@@ -1,40 +1,49 @@
 package com.bigeyes.app.ui
 
 import android.content.Context
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
 import androidx.core.content.ContextCompat
-import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bigeyes.app.R
 import com.bigeyes.app.model.playback.Episode
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 
+/** 选集: bottom sheet with a grid of episode tiles; the playing one is highlighted. */
 class EpisodeSelectDialog(
     private val context: Context,
     private val episodes: List<Episode>,
     private val currentIndex: Int,
     private val onEpisodeSelected: (Int) -> Unit
 ) {
+    companion object {
+        private const val COLUMNS = 4
+    }
+
     private val dialog = BottomSheetDialog(context)
 
     init {
         val view = LayoutInflater.from(context).inflate(R.layout.dialog_episode_select, null)
         dialog.setContentView(view)
 
-        val tvTitle: TextView = view.findViewById(R.id.tv_episode_dialog_title)
+        val tvSubtitle: TextView = view.findViewById(R.id.tv_episode_dialog_subtitle)
         val btnClose: ImageButton = view.findViewById(R.id.btn_close_episode_dialog)
         val rv: RecyclerView = view.findViewById(R.id.rv_episodes)
 
         val total = episodes.size
-        tvTitle.text = "选集 (共 ${total} 集)"
+        tvSubtitle.text = if (currentIndex in episodes.indices) {
+            "共 ${total} 集 · 正在播放第 ${episodes[currentIndex].episodeNumber} 集"
+        } else {
+            "共 ${total} 集"
+        }
         btnClose.setOnClickListener { dialog.dismiss() }
 
-        rv.layoutManager = LinearLayoutManager(context)
+        rv.layoutManager = GridLayoutManager(context, COLUMNS)
         rv.adapter = EpisodeAdapter(episodes, currentIndex) { selectedIdx ->
             dialog.dismiss()
             onEpisodeSelected(selectedIdx)
@@ -43,6 +52,9 @@ class EpisodeSelectDialog(
         if (currentIndex in episodes.indices) {
             rv.scrollToPosition(currentIndex)
         }
+
+        dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        dialog.behavior.skipCollapsed = true
     }
 
     fun show() {
@@ -77,21 +89,33 @@ class EpisodeSelectDialog(
 
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val ep = list[position]
+            val ctx = holder.itemView.context
             val isCurrent = position == currentIndex
 
             holder.tvNum.text = ep.episodeNumber.toString()
-            holder.tvTitle.text = ep.displayTitle
 
-            if (isCurrent) {
-                holder.tvBadge.visibility = View.VISIBLE
-                holder.tvTitle.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.brand_primary))
-                holder.tvNum.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.brand_primary))
+            // Only show a subtitle when the title says more than "第 N 集".
+            val title = ep.episodeTitle.trim()
+            val isPlainNumber = title.isBlank() ||
+                title.replace(" ", "") == "第${ep.episodeNumber}集" ||
+                title == ep.episodeNumber.toString()
+            if (isPlainNumber) {
+                holder.tvTitle.visibility = View.GONE
             } else {
-                holder.tvBadge.visibility = View.GONE
-                holder.tvTitle.setTextColor(Color.WHITE)
-                holder.tvNum.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.text_muted))
+                holder.tvTitle.visibility = View.VISIBLE
+                holder.tvTitle.text = title
             }
 
+            holder.itemView.setBackgroundResource(
+                if (isCurrent) R.drawable.bg_episode_tile_current else R.drawable.bg_episode_tile
+            )
+            holder.tvBadge.visibility = if (isCurrent) View.VISIBLE else View.GONE
+            holder.tvNum.setTextColor(
+                ContextCompat.getColor(ctx, if (isCurrent) R.color.brand_primary else R.color.text_primary)
+            )
+            holder.itemView.contentDescription = if (isCurrent) "${ep.displayTitle}，正在播放" else ep.displayTitle
+
+            // The episode list never changes while the sheet is open, so the bound position is stable.
             holder.itemView.setOnClickListener {
                 onClick(position)
             }

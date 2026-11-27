@@ -1,9 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 皮肤 A「暗夜影院」(深色)：近黑底 + 电光蓝。 -->
 <resources>
-    <color name="surface_bg">#FF121212</color>
-    <color name="card_bg">#FF1E1E1E</color>
-    <color name="input_bg">#FF2C2C2C</color>
-    <color name="divider_color">#FF333333</color>
-    <color name="text_primary">#FFF5F5F5</color>
-    <color name="text_secondary">#FFAAAAAA</color>
+    <!-- Brand / accent -->
+    <color name="brand_primary">#FF4F9DFF</color>
+    <color name="brand_primary_soft">#FF1E3A66</color>
+    <color name="accent_glow">#294F9DFF</color>
+    <color name="danger">#FFFF6B6B</color>
+
+    <!-- Surfaces -->
+    <color name="surface_bg">#FF0E1014</color>
+    <color name="chrome_bg">#FF13161C</color>
+    <color name="card_bg">#FF171A21</color>
+    <color name="input_bg">#FF222632</color>
+    <color name="divider_color">#FF2B303C</color>
+
+    <!-- Text / icons -->
+    <color name="text_primary">#FFF2F4F8</color>
+    <color name="text_secondary">#FF8B93A5</color>
+    <color name="text_muted">#FF6B7385</color>
+    <color name="icon_primary">#FFF2F4F8</color>
+    <color name="icon_secondary">#FF8B93A5</color>
+
+    <!-- Cast status chip (playback control bar) -->
+    <color name="status_ok_bg">#FF0F2E25</color>
+    <color name="status_ok_text">#FF34D399</color>
+    <color name="status_busy_bg">#FF13294A</color>
+    <color name="status_busy_text">#FF8EC1FF</color>
+    <color name="status_err_bg">#FF3A1A1D</color>
+    <color name="status_err_text">#FFFF8A8A</color>
+    <color name="status_idle_bg">#FF222632</color>
+    <color name="status_idle_text">#FFB4BBC8</color>
+    <color name="control_scrim">#8C000000</color>
 </resources>

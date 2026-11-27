@@ -1,238 +1,561 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Playback control panel (both skins).
+  Collapsed: mini card = cover + title + status + thin progress + play/pause.
+  Expanded: grab handle, seek bar, big centre play button, episode/seek buttons, action tiles.
+  Tap the header / "更多控制" to expand; tap the header, the handle or the dimmed page to collapse.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/control_card"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginHorizontal="8dp"
+    android:layout_marginBottom="8dp"
     android:orientation="vertical"
-    android:background="@color/control_bar_bg"
+    android:background="@drawable/bg_control_card"
+    android:elevation="8dp"
     android:paddingHorizontal="12dp"
     android:paddingTop="10dp"
-    android:paddingBottom="8dp"
-    android:elevation="8dp">
+    android:paddingBottom="6dp">
 
-    <!-- Title and Device Info -->
+    <!-- Grab handle (expanded only) -->
+    <FrameLayout
+        android:id="@+id/view_grab_handle"
+        android:layout_width="match_parent"
+        android:layout_height="16dp"
+        android:layout_marginTop="-4dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="收起"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_grab_handle" />
+    </FrameLayout>
+
+    <!-- Header: tap to expand / collapse -->
     <LinearLayout
+        android:id="@+id/layout_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:gravity="center_vertical"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true">
 
-        <TextView
-            android:id="@+id/tv_playing_title"
+        <FrameLayout
+            android:id="@+id/frame_thumb"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_thumb">
+
+            <androidx.appcompat.widget.AppCompatImageView
+                android:id="@+id/iv_thumb"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                app:srcCompat="@drawable/ic_movie"
+                app:tint="@color/brand_primary"
+                android:importantForAccessibility="no" />
+        </FrameLayout>
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textColor="@color/white"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:singleLine="true"
-            android:ellipsize="end"
-            android:text="正在电视投屏播放..." />
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/tv_queue_indicator"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/brand_primary"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:text="第 1 集"
-            android:layout_marginStart="8dp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/tv_target_device"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_muted"
-            android:textSize="12sp"
-            android:maxWidth="100dp"
-            android:singleLine="true"
-            android:ellipsize="end"
-            android:text="电视"
-            android:layout_marginStart="8dp" />
+                <TextView
+                    android:id="@+id/tv_playing_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:text="正在投屏..." />
+
+                <TextView
+                    android:id="@+id/tv_queue_indicator"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    android:text="第 1 集 / 共 1 集" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tv_cast_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_status_chip"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="2dp"
+                    android:textSize="11sp"
+                    android:singleLine="true"
+                    android:text="● 正在连接…" />
+
+                <TextView
+                    android:id="@+id/tv_target_device"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:maxWidth="140dp"
+                    android:drawableStart="@drawable/ic_tv_small"
+                    android:drawablePadding="4dp"
+                    android:drawableTint="@color/text_secondary"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:text="电视" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Mini play/pause (collapsed only) -->
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/btn_play_pause"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_round_primary"
+            android:padding="13dp"
+            android:scaleType="fitCenter"
+            app:srcCompat="@drawable/ic_pause"
+            app:tint="@color/white"
+            android:contentDescription="暂停" />
 
         <androidx.appcompat.widget.AppCompatImageButton
             android:id="@+id/btn_close_control"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:layout_marginStart="4dp"
+            android:layout_width="40dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="2dp"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
             app:srcCompat="@drawable/ic_close"
-            app:tint="@color/text_muted"
-            android:padding="8dp"
-            android:contentDescription="关闭播控" />
+            app:tint="@color/text_secondary"
+            android:contentDescription="收起播控条" />
     </LinearLayout>
 
-    <!-- Progress SeekBar -->
+    <!-- Thin progress line (collapsed only) -->
+    <ProgressBar
+        android:id="@+id/pb_mini_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:layout_marginTop="10dp"
+        android:max="1000"
+        android:progress="0"
+        android:progressDrawable="@drawable/progress_mini" />
+
+    <!-- Error with retry, shown only on failure (both modes) -->
     <LinearLayout
+        android:id="@+id/layout_error"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="2dp">
+        android:background="@drawable/bg_error_box"
+        android:paddingStart="12dp"
+        android:paddingEnd="2dp"
+        android:visibility="gone">
 
         <TextView
-            android:id="@+id/tv_current_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_muted"
-            android:textSize="12sp"
-            android:text="00:00:00" />
-
-        <SeekBar
-            android:id="@+id/seekbar_progress"
+            android:id="@+id/tv_error_message"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:max="1000"
-            android:progress="0"
-            android:thumbTint="@color/brand_primary"
-            android:progressTint="@color/brand_primary" />
-
-        <TextView
-            android:id="@+id/tv_total_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_muted"
+            android:textColor="@color/status_err_text"
             android:textSize="12sp"
-            android:text="00:00:00" />
-    </LinearLayout>
-
-    <!-- Primary Transport Row (fits cleanly on 360dp phones without overflow) -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginTop="4dp">
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:text="电视播放失败" />
 
         <Button
-            android:id="@+id/btn_previous_episode"
+            android:id="@+id/btn_retry"
             style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:minWidth="44dp"
-            android:paddingHorizontal="8dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="上集"
-            android:textSize="12sp"
-            android:textColor="@color/white" />
-
-        <Button
-            android:id="@+id/btn_rewind"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:minWidth="44dp"
-            android:paddingHorizontal="8dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="-15s"
-            android:textSize="12sp"
-            android:textColor="@color/white" />
-
-        <Button
-            android:id="@+id/btn_play_pause"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
+            android:layout_height="44dp"
             android:minWidth="64dp"
             android:insetTop="0dp"
             android:insetBottom="0dp"
-            android:text="暂停"
+            android:text="重试"
             android:textSize="13sp"
             android:textStyle="bold"
-            android:layout_marginHorizontal="6dp"
-            android:backgroundTint="@color/brand_primary"
-            android:textColor="@color/white" />
-
-        <Button
-            android:id="@+id/btn_forward"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:minWidth="44dp"
-            android:paddingHorizontal="8dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="+15s"
-            android:textSize="12sp"
-            android:textColor="@color/white" />
-
-        <Button
-            android:id="@+id/btn_next_episode"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:minWidth="44dp"
-            android:paddingHorizontal="8dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="下集"
-            android:textSize="12sp"
             android:textColor="@color/brand_primary" />
     </LinearLayout>
 
-    <!-- Secondary Actions Row: Speed, Device Switch, Episode List, Stop -->
+    <!-- ==================== Expanded panel ==================== -->
     <LinearLayout
+        android:id="@+id/layout_expanded"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- Seek -->
+        <SeekBar
+            android:id="@+id/seekbar_progress"
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginHorizontal="-8dp"
+            android:max="1000"
+            android:progress="0"
+            android:thumbTint="@color/brand_primary"
+            android:progressTint="@color/brand_primary"
+            android:progressBackgroundTint="@color/text_muted" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tv_current_time"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp"
+                android:fontFeatureSettings="tnum"
+                android:text="00:00" />
+
+            <TextView
+                android:id="@+id/tv_total_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp"
+                android:fontFeatureSettings="tnum"
+                android:text="00:00" />
+        </LinearLayout>
+
+        <!-- Transport: prev, -15, BIG play, +15, next -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:baselineAligned="false">
+
+            <LinearLayout
+                android:id="@+id/col_previous_episode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <androidx.appcompat.widget.AppCompatImageButton
+                    android:id="@+id/btn_previous_episode"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/bg_round_soft"
+                    android:padding="13dp"
+                    android:scaleType="fitCenter"
+                    app:srcCompat="@drawable/ic_skip_previous"
+                    app:tint="@color/icon_primary"
+                    android:contentDescription="上一集" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="10sp"
+                    android:text="上集" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <androidx.appcompat.widget.AppCompatImageButton
+                    android:id="@+id/btn_rewind"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/bg_round_soft"
+                    android:padding="13dp"
+                    android:scaleType="fitCenter"
+                    app:srcCompat="@drawable/ic_replay"
+                    app:tint="@color/icon_primary"
+                    android:contentDescription="后退 15 秒" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="10sp"
+                    android:text="-15 秒" />
+            </LinearLayout>
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1.3">
+
+                <androidx.appcompat.widget.AppCompatImageButton
+                    android:id="@+id/btn_play_pause_big"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:layout_gravity="center_horizontal|top"
+                    android:background="@drawable/bg_round_primary"
+                    android:padding="20dp"
+                    android:scaleType="fitCenter"
+                    android:elevation="4dp"
+                    app:srcCompat="@drawable/ic_pause"
+                    app:tint="@color/white"
+                    android:contentDescription="暂停" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <androidx.appcompat.widget.AppCompatImageButton
+                    android:id="@+id/btn_forward"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/bg_round_soft"
+                    android:padding="13dp"
+                    android:scaleType="fitCenter"
+                    app:srcCompat="@drawable/ic_forward_seek"
+                    app:tint="@color/icon_primary"
+                    android:contentDescription="快进 15 秒" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="10sp"
+                    android:text="+15 秒" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/col_next_episode"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center_horizontal">
+
+                <androidx.appcompat.widget.AppCompatImageButton
+                    android:id="@+id/btn_next_episode"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/bg_round_soft"
+                    android:padding="13dp"
+                    android:scaleType="fitCenter"
+                    app:srcCompat="@drawable/ic_skip_next"
+                    app:tint="@color/icon_primary"
+                    android:contentDescription="下一集" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="10sp"
+                    android:text="下集" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Action tiles -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="6dp"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/btn_select_episode"
+                android:layout_width="0dp"
+                android:layout_height="58dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/bg_action_tile"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="选集">
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    app:srcCompat="@drawable/ic_playlist"
+                    app:tint="@color/icon_secondary"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/text_primary"
+                    android:textSize="11sp"
+                    android:text="选集" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btn_speed"
+                android:layout_width="0dp"
+                android:layout_height="58dp"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="4dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/bg_action_tile"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="倍速">
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:id="@+id/iv_speed_icon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    app:srcCompat="@drawable/ic_speed"
+                    app:tint="@color/icon_secondary"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:id="@+id/tv_speed_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/text_primary"
+                    android:textSize="11sp"
+                    android:text="1.0x" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btn_switch_device"
+                android:layout_width="0dp"
+                android:layout_height="58dp"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="4dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/bg_action_tile"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="换设备">
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    app:srcCompat="@drawable/ic_devices"
+                    app:tint="@color/icon_secondary"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/text_primary"
+                    android:textSize="11sp"
+                    android:text="换设备" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btn_stop"
+                android:layout_width="0dp"
+                android:layout_height="58dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:background="@drawable/bg_action_tile"
+                android:foreground="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="停止投屏">
+
+                <androidx.appcompat.widget.AppCompatImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    app:srcCompat="@drawable/ic_stop"
+                    app:tint="@color/danger"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:textColor="@color/danger"
+                    android:textSize="11sp"
+                    android:text="停止投屏" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- "更多控制" hint (collapsed only) -->
+    <LinearLayout
+        android:id="@+id/layout_expand_toggle"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:layout_marginTop="2dp"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginTop="2dp">
+        android:gravity="center"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true">
 
-        <Button
-            android:id="@+id/btn_speed"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="0dp"
-            android:layout_height="32dp"
-            android:layout_weight="1"
-            android:minWidth="0dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="1.0x"
-            android:textSize="12sp"
-            android:textColor="@color/text_muted" />
+        <TextView
+            android:id="@+id/tv_expand_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_muted"
+            android:textSize="11sp"
+            android:text="更多控制" />
 
-        <Button
-            android:id="@+id/btn_switch_device"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="0dp"
-            android:layout_height="32dp"
-            android:layout_weight="1"
-            android:minWidth="0dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="换设备"
-            android:textSize="12sp"
-            android:textColor="@color/white" />
-
-        <Button
-            android:id="@+id/btn_select_episode"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="0dp"
-            android:layout_height="32dp"
-            android:layout_weight="1"
-            android:minWidth="0dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="选集"
-            android:textSize="12sp"
-            android:textColor="@color/white" />
-
-        <Button
-            android:id="@+id/btn_stop"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="0dp"
-            android:layout_height="32dp"
-            android:layout_weight="1"
-            android:minWidth="0dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="停止"
-            android:textSize="12sp"
-            android:textColor="#FF5252" />
+        <androidx.appcompat.widget.AppCompatImageView
+            android:id="@+id/iv_expand_arrow"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="2dp"
+            app:srcCompat="@drawable/ic_expand_less"
+            app:tint="@color/text_muted"
+            android:importantForAccessibility="no" />
     </LinearLayout>
 
 </LinearLayout>

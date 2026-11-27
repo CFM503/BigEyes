@@ -1,11 +1,56 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      One theme for both skins: every color below comes from values/colors.xml (清爽明亮)
+      or values-night/colors.xml (暗夜影院), selected by AppCompat day/night mode.
+    -->
     <style name="Theme.BigEyes" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand_primary</item>
-        <item name="colorPrimaryVariant">@color/purple_700</item>
+        <item name="colorPrimaryVariant">@color/brand_primary</item>
         <item name="colorOnPrimary">@color/white</item>
-        <item name="colorSecondary">@color/brand_secondary</item>
-        <item name="colorSecondaryVariant">@color/teal_700</item>
-        <item name="colorOnSecondary">@color/black</item>
-        <item name="android:statusBarColor">#262626</item>
+        <item name="colorSecondary">@color/brand_primary</item>
+        <item name="colorSecondaryVariant">@color/brand_primary</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorSurface">@color/card_bg</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorError">@color/danger</item>
+        <item name="android:colorBackground">@color/surface_bg</item>
+        <item name="android:windowBackground">@color/surface_bg</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:statusBarColor">@color/chrome_bg</item>
+        <item name="android:navigationBarColor">@color/chrome_bg</item>
+        <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">@bool/light_system_bars</item>
+        <!-- Rounded bottom sheets and dialogs in both skins -->
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.BigEyes.BottomSheetDialog</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.BigEyes.AlertDialog</item>
+    </style>
+
+    <style name="ThemeOverlay.BigEyes.BottomSheetDialog" parent="ThemeOverlay.MaterialComponents.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.BigEyes.BottomSheet</item>
+        <item name="android:navigationBarColor">@color/card_bg</item>
+    </style>
+
+    <style name="Widget.BigEyes.BottomSheet" parent="Widget.MaterialComponents.BottomSheet.Modal">
+        <item name="backgroundTint">@color/card_bg</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.BigEyes.Sheet</item>
+    </style>
+
+    <style name="ShapeAppearance.BigEyes.Sheet" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">24dp</item>
+        <item name="cornerSizeTopRight">24dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
+
+    <style name="ThemeOverlay.BigEyes.AlertDialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorSurface">@color/card_bg</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.BigEyes.Dialog</item>
+    </style>
+
+    <style name="ShapeAppearance.BigEyes.Dialog" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
     </style>
 </resources>

@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -66,6 +67,11 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var switchAutoPlayNext: com.google.android.material.switchmaterial.SwitchMaterial
     private lateinit var switchPreferBigEyesTv: com.google.android.material.switchmaterial.SwitchMaterial
+    private lateinit var switchControlBarExpanded: com.google.android.material.switchmaterial.SwitchMaterial
+    private lateinit var switchShowCastToasts: com.google.android.material.switchmaterial.SwitchMaterial
+    private lateinit var switchShowTechInfo: com.google.android.material.switchmaterial.SwitchMaterial
+    private lateinit var rowAppearance: View
+    private lateinit var tvAppearanceValue: TextView
     private lateinit var tvBigEyesTvStatus: TextView
     private lateinit var btnTestBigEyesTv: Button
     private lateinit var btnClearHistory: Button
@@ -123,6 +129,11 @@ class SettingsActivity : AppCompatActivity() {
 
         switchAutoPlayNext = findViewById(R.id.switch_auto_play_next)
         switchPreferBigEyesTv = findViewById(R.id.switch_prefer_bigeyes_tv)
+        switchControlBarExpanded = findViewById(R.id.switch_control_bar_expanded)
+        switchShowCastToasts = findViewById(R.id.switch_show_cast_toasts)
+        switchShowTechInfo = findViewById(R.id.switch_show_tech_info)
+        rowAppearance = findViewById(R.id.row_appearance)
+        tvAppearanceValue = findViewById(R.id.tv_appearance_value)
         tvBigEyesTvStatus = findViewById(R.id.tv_bigeyes_tv_status)
         btnTestBigEyesTv = findViewById(R.id.btn_test_bigeyes_tv)
         btnClearHistory = findViewById(R.id.btn_clear_history)
@@ -132,6 +143,17 @@ class SettingsActivity : AppCompatActivity() {
             val msg = if (isChecked) "已开启自动连播下一集 (单集播完倒计时 10 秒切换)" else "已关闭自动连播下一集"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
+
+        switchControlBarExpanded.setOnCheckedChangeListener { _, isChecked ->
+            AppPreferences.setControlBarExpandedByDefault(this, isChecked)
+        }
+        switchShowCastToasts.setOnCheckedChangeListener { _, isChecked ->
+            AppPreferences.setShowCastToasts(this, isChecked)
+        }
+        switchShowTechInfo.setOnCheckedChangeListener { _, isChecked ->
+            AppPreferences.setShowTechInfo(this, isChecked)
+        }
+        rowAppearance.setOnClickListener { showAppearancePicker() }
 
         switchPreferBigEyesTv.setOnCheckedChangeListener { _, isChecked ->
             AppPreferences.setPreferBigEyesTv(this, isChecked)
@@ -264,9 +286,36 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    /** 外观: 跟随系统 / 暗夜影院 / 清爽明亮. This screen re-themes immediately (AppCompat recreates it). */
+    private fun showAppearancePicker() {
+        val options = AppPreferences.Appearance.values()
+        val labels = arrayOf(
+            "跟随系统（手机深色模式时用暗夜影院）",
+            "暗夜影院（深色）",
+            "清爽明亮（浅色）"
+        )
+        val current = options.indexOf(AppPreferences.getAppearance(this))
+        MaterialAlertDialogBuilder(this)
+            .setTitle("外观")
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                dialog.dismiss()
+                val chosen = options[which]
+                if (chosen == AppPreferences.getAppearance(this)) return@setSingleChoiceItems
+                AppPreferences.setAppearance(this, chosen)
+                tvAppearanceValue.text = chosen.label
+                AppPreferences.applyAppearance(this)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun loadPlaybackAndTvSettings() {
         switchAutoPlayNext.isChecked = AppPreferences.isAutoPlayNext(this)
         switchPreferBigEyesTv.isChecked = AppPreferences.isPreferBigEyesTv(this)
+        switchControlBarExpanded.isChecked = AppPreferences.isControlBarExpandedByDefault(this)
+        switchShowCastToasts.isChecked = AppPreferences.isShowCastToasts(this)
+        switchShowTechInfo.isChecked = AppPreferences.isShowTechInfo(this)
+        tvAppearanceValue.text = AppPreferences.getAppearance(this).label
 
         val tvConnector = com.bigeyes.app.playback.tv.BigEyesTvConnector(this)
         val directSupported = tvConnector.isDirectCastSupported()

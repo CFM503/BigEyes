@@ -3,33 +3,45 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:minHeight="60dp"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingVertical="10dp"
-    android:paddingHorizontal="14dp"
-    android:background="?attr/selectableItemBackground">
+    android:paddingVertical="8dp"
+    android:paddingStart="10dp"
+    android:paddingEnd="4dp"
+    android:background="@drawable/bg_option">
 
-    <ImageView
-        android:id="@+id/iv_bookmark_icon"
-        android:layout_width="28dp"
-        android:layout_height="28dp"
-        android:src="@drawable/ic_bookmark_filled"
-        app:tint="@color/brand_primary"
-        android:contentDescription="书签图标"
-        android:layout_marginEnd="12dp" />
+    <FrameLayout
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="@drawable/bg_icon_tile">
+
+        <ImageView
+            android:id="@+id/iv_bookmark_icon"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center"
+            app:srcCompat="@drawable/ic_bookmark_filled"
+            app:tint="@color/brand_primary"
+            android:importantForAccessibility="no" />
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/layout_bookmark_info"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical">
+        android:layout_marginStart="12dp"
+        android:orientation="vertical"
+        android:background="?attr/selectableItemBackground"
+        android:paddingVertical="4dp">
 
         <TextView
             android:id="@+id/tv_bookmark_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="15sp"
+            android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="@color/text_primary"
             android:maxLines="1"
@@ -40,7 +52,7 @@
             android:id="@+id/tv_bookmark_url"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:textColor="@color/text_secondary"
             android:maxLines="1"
             android:ellipsize="end"
@@ -52,30 +64,33 @@
         android:id="@+id/btn_set_as_home"
         android:layout_width="40dp"
         android:layout_height="40dp"
+        android:padding="10dp"
+        android:scaleType="fitCenter"
         app:srcCompat="@drawable/ic_home"
         app:tint="@color/text_secondary"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="设为默认主页"
-        android:layout_marginStart="2dp" />
+        android:contentDescription="设为默认主页" />
 
     <ImageButton
         android:id="@+id/btn_edit_bookmark"
         android:layout_width="40dp"
         android:layout_height="40dp"
+        android:padding="10dp"
+        android:scaleType="fitCenter"
         app:srcCompat="@drawable/ic_edit"
         app:tint="@color/text_secondary"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="编辑书签"
-        android:layout_marginStart="2dp" />
+        android:contentDescription="编辑书签" />
 
     <ImageButton
         android:id="@+id/btn_delete_bookmark"
         android:layout_width="40dp"
         android:layout_height="40dp"
+        android:padding="10dp"
+        android:scaleType="fitCenter"
         app:srcCompat="@drawable/ic_delete"
-        app:tint="#E53935"
+        app:tint="@color/danger"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="删除书签"
-        android:layout_marginStart="2dp" />
+        android:contentDescription="删除书签" />
 
 </LinearLayout>

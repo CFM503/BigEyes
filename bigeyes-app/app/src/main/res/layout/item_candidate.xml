@@ -1,47 +1,111 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- One option card in a picker sheet (candidate video or TV device). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/item_root"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="12dp"
-    android:background="?attr/selectableItemBackground">
+    android:layout_marginBottom="8dp"
+    android:minHeight="64dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_option"
+    android:foreground="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true"
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="10dp">
 
-    <TextView
-        android:id="@+id/tv_item_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="@color/text_primary"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:text="视频候选 1" />
+    <FrameLayout
+        android:id="@+id/frame_item_icon"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="@drawable/bg_icon_tile">
 
-    <TextView
-        android:id="@+id/tv_item_tags"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="@color/brand_secondary"
-        android:textSize="12sp"
-        android:layout_marginTop="2dp"
-        android:text="HLS · 主列表 · 1080p/720p" />
+        <androidx.appcompat.widget.AppCompatImageView
+            android:id="@+id/iv_item_icon"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center"
+            app:srcCompat="@drawable/ic_movie"
+            app:tint="@color/icon_secondary"
+            android:importantForAccessibility="no" />
+    </FrameLayout>
 
-    <TextView
-        android:id="@+id/tv_item_url"
-        android:layout_width="match_parent"
+    <LinearLayout
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:textColor="@color/text_secondary"
-        android:textSize="12sp"
-        android:singleLine="true"
-        android:ellipsize="middle"
-        android:layout_marginTop="2dp"
-        android:text="https://example.com/stream/index.m3u8" />
+        android:layout_weight="1"
+        android:layout_marginStart="12dp"
+        android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/tv_item_time"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="@color/brand_primary"
-        android:textSize="11sp"
-        android:layout_marginTop="2dp"
-        android:text="嗅探时间: 12:30:45" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tv_item_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:text="视频" />
+
+            <TextView
+                android:id="@+id/tv_item_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_badge_pill"
+                android:paddingHorizontal="7dp"
+                android:paddingVertical="1dp"
+                android:textColor="@color/white"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                android:text="推荐" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_item_tags"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:text="1080p / 720p 可选" />
+
+        <!-- Technical details: only with 显示技术信息 -->
+        <TextView
+            android:id="@+id/tv_item_tech"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/text_muted"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:visibility="gone"
+            android:text="https://example.com/stream/index.m3u8" />
+    </LinearLayout>
+
+    <androidx.appcompat.widget.AppCompatImageView
+        android:id="@+id/iv_item_check"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="8dp"
+        app:srcCompat="@drawable/ic_check"
+        app:tint="@color/brand_primary"
+        android:visibility="gone"
+        android:contentDescription="当前选中" />
 
 </LinearLayout>

@@ -1,97 +1,98 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 书签 bottom sheet. The list is last so a long list scrolls inside the sheet. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp"
-    android:background="@color/card_bg">
+    android:paddingHorizontal="16dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="16dp">
 
-    <!-- Header Section -->
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:background="@drawable/bg_grab_handle" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
         android:orientation="horizontal"
         android:gravity="center_vertical">
-
-        <ImageView
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            app:srcCompat="@drawable/ic_bookmark_filled"
-            app:tint="@color/brand_primary"
-            android:layout_marginEnd="8dp" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="书签收藏与常用站点"
+            android:text="书签"
             android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="@color/text_primary" />
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_restore_default_bookmarks"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="40dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
             android:text="预设站点"
-            style="@style/Widget.MaterialComponents.Button.TextButton" />
+            android:textSize="13sp"
+            android:textColor="@color/brand_primary" />
+
+        <androidx.appcompat.widget.AppCompatImageButton
+            android:id="@+id/btn_close_dialog"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:srcCompat="@drawable/ic_close"
+            app:tint="@color/text_secondary"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="关闭" />
     </LinearLayout>
 
-    <!-- Quick Add Current Page Button -->
-    <Button
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_add_current_page"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="48dp"
+        android:layout_marginTop="10dp"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
         android:text="收藏当前网页"
         android:textSize="14sp"
-        android:backgroundTint="@color/brand_primary"
+        android:textStyle="bold"
         android:textColor="@color/white"
-        android:layout_marginTop="12dp" />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider_color"
-        android:layout_marginVertical="10dp" />
-
-    <!-- Bookmarks List ScrollView / Container -->
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:maxHeight="360dp">
-
-        <LinearLayout
-            android:id="@+id/container_bookmark_items"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
-    </ScrollView>
+        android:backgroundTint="@color/brand_primary"
+        app:icon="@drawable/ic_bookmark"
+        app:iconGravity="textStart"
+        app:iconSize="18dp"
+        app:iconTint="@color/white"
+        app:cornerRadius="12dp"
+        app:elevation="0dp" />
 
     <TextView
         android:id="@+id/tv_empty_bookmarks"
         android:layout_width="match_parent"
         android:layout_height="100dp"
         android:gravity="center"
-        android:text="暂无书签，点击上方按钮收藏当前网页"
-        android:textColor="#999999"
-        android:textSize="14sp"
+        android:text="还没有书签，点上方按钮收藏当前网页"
+        android:textColor="@color/text_muted"
+        android:textSize="13sp"
         android:visibility="gone" />
 
-    <LinearLayout
+    <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="end"
         android:layout_marginTop="12dp">
 
-        <Button
-            android:id="@+id/btn_close_dialog"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/container_bookmark_items"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="关闭"
-            style="@style/Widget.MaterialComponents.Button.TextButton" />
-    </LinearLayout>
+            android:orientation="vertical" />
+    </androidx.core.widget.NestedScrollView>
 
 </LinearLayout>

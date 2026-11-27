@@ -246,4 +246,28 @@ object CandidateRanker {
         if (candidate.isStale) text += " · 上一页面"
         return text
     }
+
+    /**
+     * Plain-language line for the simple (non-technical) picker, e.g. "1080p / 720p 可选",
+     * "疑似广告/预告", "上一页面的视频". No formats or merge counts.
+     */
+    fun describeSimple(candidate: VideoCandidate): String {
+        val parts = mutableListOf<String>()
+        if (candidate.isSuspicious) parts += "疑似广告/预告"
+        val qualities = candidate.qualities.ifEmpty { listOfNotNull(qualityOf(candidate.url)) }
+        when {
+            qualities.size > 1 -> parts += qualities.joinToString(" / ") + " 可选"
+            qualities.size == 1 -> parts += qualities.first()
+            candidate.isMasterPlaylist -> parts += "多种清晰度"
+        }
+        if (parts.isEmpty() || (candidate.isSuspicious && parts.size == 1)) {
+            parts += when (formatOf(candidate.url)) {
+                "HLS" -> "在线视频"
+                "视频" -> "视频"
+                else -> "${formatOf(candidate.url)} 视频"
+            }
+        }
+        if (candidate.isStale) parts += "上一页面的视频"
+        return parts.joinToString(" · ")
+    }
 }

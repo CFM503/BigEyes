@@ -173,4 +173,25 @@ class CandidateRankerTest {
         val ad = VideoCandidate(url = "https://cdn.example.com/promo.mp4", isSuspicious = true, isStale = true)
         assertEquals("MP4 · ⚠ 疑似广告/预告 · 上一页面", CandidateRanker.describe(ad))
     }
+
+    @Test
+    fun describeSimpleUsesPlainWords() {
+        val master = VideoCandidate(
+            url = "https://cdn.example.com/show/index.m3u8",
+            variantCount = 3,
+            qualities = listOf("1080p", "720p"),
+            isMasterPlaylist = true
+        )
+        assertEquals("1080p / 720p 可选", CandidateRanker.describeSimple(master))
+
+        val masterNoQuality = VideoCandidate(url = "https://cdn.example.com/m/master.m3u8", isMasterPlaylist = true)
+        assertEquals("多种清晰度", CandidateRanker.describeSimple(masterNoQuality))
+
+        assertEquals("在线视频", CandidateRanker.describeSimple(VideoCandidate(url = "https://cdn.example.com/a.m3u8")))
+        assertEquals("MP4 视频", CandidateRanker.describeSimple(VideoCandidate(url = "https://cdn.example.com/a.mp4")))
+        assertEquals("720p", CandidateRanker.describeSimple(VideoCandidate(url = "https://cdn.example.com/a_720p.mp4")))
+
+        val ad = VideoCandidate(url = "https://cdn.example.com/promo.mp4", isSuspicious = true, isStale = true)
+        assertEquals("疑似广告/预告 · MP4 视频 · 上一页面的视频", CandidateRanker.describeSimple(ad))
+    }
 }

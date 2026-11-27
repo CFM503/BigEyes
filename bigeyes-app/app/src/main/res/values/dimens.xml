@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="top_bar_height">56dp</dimen>
+    <dimen name="bottom_bar_height">60dp</dimen>
+    <dimen name="radius_card">16dp</dimen>
+    <dimen name="radius_control">12dp</dimen>
+</resources>

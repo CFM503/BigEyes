@@ -11,11 +11,13 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import com.bigeyes.app.R
 import com.bigeyes.app.browser.BookmarkManager
 import com.bigeyes.app.model.Bookmark
 import com.bigeyes.app.utils.AppPreferences
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 object BookmarkDialog {
@@ -31,9 +33,9 @@ object BookmarkDialog {
         val tvEmpty = dialogView.findViewById<TextView>(R.id.tv_empty_bookmarks)
         val btnAddCurrent = dialogView.findViewById<Button>(R.id.btn_add_current_page)
         val btnRestore = dialogView.findViewById<Button>(R.id.btn_restore_default_bookmarks)
-        val btnClose = dialogView.findViewById<Button>(R.id.btn_close_dialog)
+        val btnClose = dialogView.findViewById<View>(R.id.btn_close_dialog)
 
-        var dialog: AlertDialog? = null
+        var dialog: BottomSheetDialog? = null
 
         fun renderBookmarks() {
             container.removeAllViews()
@@ -113,21 +115,25 @@ object BookmarkDialog {
         if (cleanCurrentUrl != null) {
             val isAlreadyBookmarked = BookmarkManager.isBookmarked(activity, cleanCurrentUrl)
             if (isAlreadyBookmarked) {
-                btnAddCurrent.text = "✓ 当前页面已收藏 (点击管理)"
+                btnAddCurrent.text = "当前页面已收藏"
+                (btnAddCurrent as? MaterialButton)?.setIconResource(R.drawable.ic_check)
                 btnAddCurrent.setOnClickListener {
                     Toast.makeText(activity, "当前网页已在书签列表中", Toast.LENGTH_SHORT).show()
                 }
             } else {
-                btnAddCurrent.text = "⭐ 收藏当前网页"
+                btnAddCurrent.text = "收藏当前网页"
+                (btnAddCurrent as? MaterialButton)?.setIconResource(R.drawable.ic_bookmark)
                 btnAddCurrent.setOnClickListener {
                     showAddBookmarkDialog(activity, cleanCurrentUrl, currentTitle) {
                         renderBookmarks()
-                        btnAddCurrent.text = "✓ 当前页面已收藏"
+                        btnAddCurrent.text = "当前页面已收藏"
+                        (btnAddCurrent as? MaterialButton)?.setIconResource(R.drawable.ic_check)
                     }
                 }
             }
         } else {
-            btnAddCurrent.text = "⭐ 添加自定义书签"
+            btnAddCurrent.text = "添加自定义书签"
+            (btnAddCurrent as? MaterialButton)?.setIconResource(R.drawable.ic_add)
             btnAddCurrent.setOnClickListener {
                 showAddBookmarkDialog(activity, "https://", "") {
                     renderBookmarks()
@@ -151,16 +157,17 @@ object BookmarkDialog {
 
         renderBookmarks()
 
-        dialog = MaterialAlertDialogBuilder(activity)
-            .setView(dialogView)
-            .setCancelable(true)
-            .create()
+        val sheet = BottomSheetDialog(activity)
+        sheet.setContentView(dialogView)
+        sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        sheet.behavior.skipCollapsed = true
+        dialog = sheet
 
         btnClose.setOnClickListener {
-            dialog.dismiss()
+            sheet.dismiss()
         }
 
-        dialog.show()
+        sheet.show()
     }
 
     private fun showAddBookmarkDialog(

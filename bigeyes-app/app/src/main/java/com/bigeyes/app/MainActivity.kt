@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val STATE_RESTORE_URL = "state_restore_url"
 
         init {
             try {
@@ -110,6 +111,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var topBar: View
     private lateinit var bottomBar: View
     private lateinit var containerControl: View
+    private lateinit var controlScrim: View
     private lateinit var fullscreenContainer: FrameLayout
     private lateinit var playbackControlBar: PlaybackControlBar
 
@@ -132,7 +134,10 @@ class MainActivity : AppCompatActivity() {
     private var currentCandidates: List<VideoCandidate> = emptyList()
 
     private var isControlBarDismissedByUser: Boolean = false
-    private var resolverWebView: WebView? = null
+
+    /** True when the last failure happened while starting a cast (retry = cast again). */
+    private var lastFailureWasCastStart: Boolean = false
+
     private var candidateListener: ((List<VideoCandidate>) -> Unit)? = null
     private var pendingExtractedPlaylist: com.bigeyes.app.playback.resolver.ExtractedPlaylist? = null
     private var activeCastCandidate: VideoCandidate? = null
@@ -141,6 +146,12 @@ class MainActivity : AppCompatActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var insetsController: WindowInsetsControllerCompat? = null
+
+    /** Day/night skin the views were inflated with (MainActivity handles uiMode itself). */
+    private var inflatedNightMode: Boolean = false
+
+    /** A skin switch is waiting until no cast is running, so we never interrupt playback. */
+    private var pendingSkinRecreate: Boolean = false
 
     // File Chooser handling (<input type="file"> / 导入)
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
@@ -176,6 +187,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        inflatedNightMode = isNightModeActive()
+        insetsController?.isAppearanceLightStatusBars = !inflatedNightMode
+        insetsController?.isAppearanceLightNavigationBars = !inflatedNightMode
 
         initViews()
         setupWindowInsets()
@@ -187,8 +201,10 @@ class MainActivity : AppCompatActivity() {
         // Asynchronous silent check for app updates
         checkForUpdatesSilently()
 
-        // Default landing page: load user-defined or factory homepage (Tencent Video)
-        val defaultUrl = AppPreferences.getHomepageUrl(this)
+        // Default landing page: the page shown before a skin switch, else the user's homepage.
+        val defaultUrl = savedInstanceState?.getString(STATE_RESTORE_URL)
+            ?.takeIf { it.isNotBlank() }
+            ?: AppPreferences.getHomepageUrl(this)
         lastValidUrl = defaultUrl
         etUrl.setText(defaultUrl)
         webView.loadUrl(defaultUrl)
@@ -230,10 +246,15 @@ class MainActivity : AppCompatActivity() {
         btnSettings = findViewById(R.id.btn_settings)
         progressBar = findViewById(R.id.progress_bar)
         containerControl = findViewById(R.id.container_playback_control)
+        controlScrim = findViewById(R.id.view_control_scrim)
         fullscreenContainer = findViewById(R.id.fullscreen_custom_content)
         containerCountdown = findViewById(R.id.container_next_countdown)
 
         playbackControlBar = PlaybackControlBar(containerControl, lifecycleScope)
+        playbackControlBar.onExpandedChanged = { expanded ->
+            controlScrim.visibility = if (expanded) View.VISIBLE else View.GONE
+        }
+        controlScrim.setOnClickListener { playbackControlBar.collapse() }
         videoResolver = VideoResolver(
             webViewProvider = {
                 val state = playbackController.session.value.playbackState
@@ -321,7 +342,14 @@ class MainActivity : AppCompatActivity() {
                 playbackControlBar.setRemoteProgressSource(tvCasting)
                 playbackControlBar.setPlaybackSpeed(session.playbackSpeed)
                 when (val state = session.playbackState) {
+                    is PlaybackState.Resolving -> {
+                        // e.g. next episode / re-resolve after a TV error: keep the user informed.
+                        if (playbackControlBar.isVisible) {
+                            playbackControlBar.setStatus(PlaybackControlBar.CastStatus.RESOLVING)
+                        }
+                    }
                     is PlaybackState.Buffering -> {
+                        lastFailureWasCastStart = false
                         nextEpisodeCountdownView.hide()
                         if (!isControlBarDismissedByUser) {
                             playbackControlBar.show(state.item.displayTitle, session.targetDevice)
@@ -338,6 +366,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     is PlaybackState.Playing -> {
+                        lastFailureWasCastStart = false
                         nextEpisodeCountdownView.hide()
                         if (!isControlBarDismissedByUser) {
                             playbackControlBar.show(state.item.displayTitle, session.targetDevice)
@@ -363,6 +392,9 @@ class MainActivity : AppCompatActivity() {
                     }
                     is PlaybackState.CountdownNext -> {
                         nextEpisodeCountdownView.show(state.nextEpisode, state.remainingSeconds)
+                        if (playbackControlBar.isVisible) {
+                            playbackControlBar.setStatus(PlaybackControlBar.CastStatus.COUNTDOWN)
+                        }
                     }
                     is PlaybackState.Completed -> {
                         nextEpisodeCountdownView.hide()
@@ -372,13 +404,24 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     is PlaybackState.Error -> {
-                        playbackControlBar.setBufferingState(false)
                         nextEpisodeCountdownView.hide()
-                        Toast.makeText(this@MainActivity, "播放出错: ${state.message}", Toast.LENGTH_SHORT).show()
+                        lastFailureWasCastStart = false
+                        if (playbackControlBar.isVisible || playbackController.isCastingToBigEyesTv) {
+                            if (!isControlBarDismissedByUser) {
+                                playbackControlBar.show(session.currentEpisode?.displayTitle, session.targetDevice)
+                            }
+                            playbackControlBar.showError(state.message, state.canRetry)
+                        } else {
+                            Toast.makeText(this@MainActivity, "播放出错: ${state.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     is PlaybackState.Idle -> {
                         playbackControlBar.setBufferingState(false)
                         nextEpisodeCountdownView.hide()
+                        if (pendingSkinRecreate) {
+                            // Cast ended: apply the skin switch that was waiting for it.
+                            applySkinChangeIfNeeded()
+                        }
                         pendingExtractedPlaylist?.let { pending ->
                             pendingExtractedPlaylist = null
                             playbackController.loadQueue(pending.episodes, pending.currentActiveIndex)
@@ -444,6 +487,58 @@ class MainActivity : AppCompatActivity() {
         // relative transport commands (±15s) start from the real position.
         playbackControlBar.onRemoteProgress = { positionMs, durationMs ->
             playbackController.updateProgress(positionMs, durationMs)
+        }
+        playbackControlBar.onRetryListener = {
+            val state = playbackController.session.value.playbackState
+            val candidate = activeCastCandidate
+            when {
+                !lastFailureWasCastStart && state is PlaybackState.Error && playbackController.queue.currentEpisode != null -> {
+                    playbackControlBar.setStatus(PlaybackControlBar.CastStatus.RESOLVING)
+                    playbackController.retryCurrentEpisode()
+                }
+                candidate != null -> showDeviceSelectOrCast(candidate)
+                else -> playbackControlBar.hide()
+            }
+        }
+    }
+
+    /**
+     * Intermediate casting steps ("正在连接…", "已投屏至…"). They are shown on the control bar;
+     * a Toast is only added when the user enabled 「投屏过程弹出提示」 in settings.
+     */
+    private fun castProgressToast(message: String, long: Boolean = false) {
+        if (AppPreferences.isShowCastToasts(this)) {
+            Toast.makeText(this, message, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** A cast is being started: open the bar in "connecting" state. */
+    private fun showCastConnecting(title: String?, deviceName: String?) {
+        isControlBarDismissedByUser = false
+        playbackControlBar.showConnecting(title, deviceName)
+    }
+
+    /** Starting a cast failed: show it on the bar (with retry) and always tell the user. */
+    private fun reportCastFailure(message: String) {
+        lastFailureWasCastStart = true
+        if (playbackControlBar.isVisible) {
+            playbackControlBar.showError(message, canRetry = activeCastCandidate != null)
+        } else {
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun isPlaybackActive(): Boolean {
+        val state = playbackController.session.value.playbackState
+        return state is PlaybackState.Playing || state is PlaybackState.Paused || state is PlaybackState.Buffering
+    }
+
+    /** A "connecting" bar left over from a failed direct cast should not sit under a dialog. */
+    private fun hideConnectingBarIfIdle() {
+        if (!isPlaybackActive() && playbackControlBar.isVisible &&
+            playbackControlBar.status == PlaybackControlBar.CastStatus.CONNECTING
+        ) {
+            playbackControlBar.hide()
         }
     }
 
@@ -538,8 +633,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupWindowInsets() {
-        val topBarBaseHeight = dpToPx(52)
-        val bottomBarBaseHeight = dpToPx(48)
+        val topBarBaseHeight = resources.getDimensionPixelSize(R.dimen.top_bar_height)
+        val bottomBarBaseHeight = resources.getDimensionPixelSize(R.dimen.bottom_bar_height)
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(android.R.id.content)) { _, insets ->
             val topLp = topBar.layoutParams
             val bottomLp = bottomBar.layoutParams
@@ -784,6 +879,7 @@ class MainActivity : AppCompatActivity() {
                     bottomBar.visibility = View.GONE
                     progressBar.visibility = View.GONE
                     targetWebView.visibility = View.INVISIBLE
+                    playbackControlBar.collapse()
                     containerControl.visibility = View.GONE
 
                     // Attach custom view to fullscreen container
@@ -993,6 +1089,9 @@ class MainActivity : AppCompatActivity() {
             btnBack.alpha = if (canBack) 1.0f else 0.35f
             btnForward.isEnabled = canFwd
             btnForward.alpha = if (canFwd) 1.0f else 0.35f
+            // Dim the labels together with their icons.
+            findViewById<View>(R.id.tv_nav_back)?.alpha = if (canBack) 1.0f else 0.35f
+            findViewById<View>(R.id.tv_nav_forward)?.alpha = if (canFwd) 1.0f else 0.35f
         }
     }
 
@@ -1108,7 +1207,7 @@ class MainActivity : AppCompatActivity() {
                     btnBookmark.setImageResource(R.drawable.ic_bookmark)
                     ImageViewCompat.setImageTintList(
                         btnBookmark,
-                        ColorStateList.valueOf(ContextCompat.getColor(this, R.color.white))
+                        ColorStateList.valueOf(ContextCompat.getColor(this, R.color.icon_secondary))
                     )
                 }
             } catch (e: Throwable) {
@@ -1247,8 +1346,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
-            Toast.makeText(this@MainActivity, "正在扫描局域网电视设备...", Toast.LENGTH_SHORT).show()
+            castProgressToast("正在扫描局域网电视设备...")
             val devices = dlnaManager.scanOnce()
+
+            // A direct cast that just fell back here must not leave "正在连接…" under the picker.
+            hideConnectingBarIfIdle()
 
             if (devices.isEmpty()) {
                 showManualDeviceDialog(candidate)
@@ -1301,11 +1403,11 @@ class MainActivity : AppCompatActivity() {
                     val dlnaManager = CastingForegroundService.instance?.dlnaManager
                         ?: fallbackDlnaManager ?: DlnaDeviceManager(this).also { fallbackDlnaManager = it }
 
-                    Toast.makeText(this@MainActivity, "正在连接 $text ...", Toast.LENGTH_SHORT).show()
+                    castProgressToast("正在连接 $text ...")
                     lifecycleScope.launch {
                         val dev = dlnaManager.addManualDevice(text)
                         if (dev != null) {
-                            Toast.makeText(this@MainActivity, "已连接设备: ${dev.name}", Toast.LENGTH_SHORT).show()
+                            castProgressToast("已连接设备: ${dev.name}")
                             if (dev.isBigEyesTv) {
                                 bigEyesTvConnector.bindDevice(dev)
                                 val headers = prepareQueueForCandidate(candidate)
@@ -1348,7 +1450,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         startCastingService()
-        Toast.makeText(this, "正在初始化本地投屏服务...", Toast.LENGTH_SHORT).show()
+        showCastConnecting(candidate.displayTitle, "电视")
+        castProgressToast("正在初始化本地投屏服务...")
         lifecycleScope.launch {
             var waited = 0
             while (CastingForegroundService.instance == null && waited < 2500) {
@@ -1357,7 +1460,7 @@ class MainActivity : AppCompatActivity() {
             }
             val service = CastingForegroundService.instance
             if (service == null) {
-                Toast.makeText(this@MainActivity, "本地投屏服务初始化超时，请重试", Toast.LENGTH_SHORT).show()
+                reportCastFailure("本地投屏服务初始化超时，请重试")
                 return@launch
             }
             performDlnaCastOnService(service, candidate, targetDeviceId)
@@ -1370,13 +1473,15 @@ class MainActivity : AppCompatActivity() {
         targetDeviceId: String?
     ) {
         val startPositionMs = playbackController.peekResumePositionMs()
-        Toast.makeText(this, "正在由手机本地代理推送至电视...", Toast.LENGTH_SHORT).show()
+        val connectingTitle = playbackController.queue.currentEpisode?.displayTitle ?: candidate.displayTitle
+        showCastConnecting(connectingTitle, "电视")
+        castProgressToast("正在由手机本地代理推送至电视...")
 
         service.castCandidate(candidate, targetDeviceId, startPositionMs) { success, devName ->
             if (success) {
                 val targetName = devName ?: "电视"
                 isControlBarDismissedByUser = false
-                Toast.makeText(this@MainActivity, "已成功投屏至 $targetName", Toast.LENGTH_LONG).show()
+                castProgressToast("已成功投屏至 $targetName", long = true)
                 playbackController.queue.currentEpisode?.let { episode ->
                     playbackController.onDlnaCastStarted(episode, targetName, startPositionMs)
                 }
@@ -1390,7 +1495,7 @@ class MainActivity : AppCompatActivity() {
                 )
             } else {
                 val err = devName ?: "未找到可用的 DLNA 电视设备"
-                Toast.makeText(this@MainActivity, "投屏失败: $err", Toast.LENGTH_LONG).show()
+                reportCastFailure("投屏失败：$err")
             }
         }
     }
@@ -1456,8 +1561,9 @@ class MainActivity : AppCompatActivity() {
         val queue = playbackController.buildQueueForTvHandover()
         val startPositionMs = playbackController.peekResumePositionMs()
 
+        showCastConnecting(item.displayTitle, "BigEyesTV")
         if (!quiet) {
-            Toast.makeText(this, "正在直连 BigEyesTV 投屏...", Toast.LENGTH_SHORT).show()
+            castProgressToast("正在直连 BigEyesTV 投屏...")
         }
         bigEyesTvConnector.startTvPlayback(
             item = item,
@@ -1472,7 +1578,7 @@ class MainActivity : AppCompatActivity() {
             }
             isControlBarDismissedByUser = false
             playbackController.onTvDirectCastStarted(item, startPositionMs, queueHandedOver = (queue != null))
-            Toast.makeText(this, "已直连投屏至 BigEyesTV", Toast.LENGTH_LONG).show()
+            castProgressToast("已直连投屏至 BigEyesTV", long = true)
             playbackControlBar.setRemoteProgressSource(true)
             playbackControlBar.show(item.displayTitle, "BigEyesTV")
             playbackControlBar.updateQueueState(
@@ -1543,6 +1649,11 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
+                // Back first folds the expanded panel, then hides the bar, then navigates.
+                if (playbackControlBar.collapse()) {
+                    return
+                }
+
                 if (playbackControlBar.isVisible) {
                     isControlBarDismissedByUser = true
                     playbackControlBar.hide()
@@ -1562,6 +1673,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         logMemoryUsage("onResume")
+        applySkinChangeIfNeeded()
         try {
             webView.onResume()
             CookieManager.getInstance().flush()
@@ -1575,6 +1687,56 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    // ==================== Skin (暗夜影院 / 清爽明亮) ====================
+
+    private fun isNightModeActive(): Boolean {
+        val mode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        return mode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // uiMode is in configChanges (keeps WebView + cast alive), so a skin or system
+        // dark-mode switch does not recreate us automatically.
+        applySkinChangeIfNeeded()
+    }
+
+    /** Nothing is being cast or resolved, so rebuilding the screen interrupts nothing. */
+    private fun isSafeToRebuildForSkin(): Boolean {
+        if (!::playbackController.isInitialized) return true
+        if (playbackController.isCastingToBigEyesTv) return false
+        if (CastingForegroundService.instance?.currentStatus?.hasActiveStream == true) return false
+        return when (playbackController.session.value.playbackState) {
+            is PlaybackState.Idle, is PlaybackState.Completed, is PlaybackState.Error -> true
+            else -> false
+        }
+    }
+
+    /**
+     * Re-inflate the screen with the new skin. While a cast is running the switch waits and is
+     * applied the next time we come back here or the cast ends, so playback is never cut off.
+     */
+    private fun applySkinChangeIfNeeded() {
+        if (isFinishing || isDestroyed) return
+        if (isNightModeActive() == inflatedNightMode) {
+            pendingSkinRecreate = false
+            return
+        }
+        if (isSafeToRebuildForSkin()) {
+            pendingSkinRecreate = false
+            window.decorView.post { if (!isFinishing && !isDestroyed) recreate() }
+        } else if (!pendingSkinRecreate) {
+            pendingSkinRecreate = true
+            Toast.makeText(this, "外观将在投屏结束后切换", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val url = if (::webView.isInitialized) webView.url?.takeIf { it.startsWith("http") } else null
+        outState.putString(STATE_RESTORE_URL, url ?: lastValidUrl)
     }
 
     override fun onPause() {

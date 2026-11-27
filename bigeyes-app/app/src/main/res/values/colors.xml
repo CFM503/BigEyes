@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  皮肤 B「清爽明亮」(浅色)。深色皮肤 A「暗夜影院」在 values-night/colors.xml。
+  界面只引用下面的语义颜色，两套皮肤自动切换。
+-->
 <resources>
+    <!-- Legacy (kept for existing references) -->
     <color name="purple_200">#FFBB86FC</color>
     <color name="purple_500">#FF6200EE</color>
     <color name="purple_700">#FF3700B3</color>
@@ -7,15 +12,39 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="brand_primary">#FF2196F3</color>
-    <color name="brand_secondary">#FF4CAF50</color>
     <color name="control_bar_bg">#EE1E1E1E</color>
     <color name="dialog_background">#FF212121</color>
-    <color name="text_muted">#FFAAAAAA</color>
-    <color name="surface_bg">#FFF5F5F5</color>
+
+    <!-- Brand / accent -->
+    <color name="brand_primary">#FF2196F3</color>
+    <color name="brand_primary_soft">#FFE3F0FD</color>
+    <color name="brand_secondary">#FF4CAF50</color>
+    <color name="accent_glow">#00000000</color>
+    <color name="danger">#FFDC2626</color>
+    <color name="badge_red">#FFE53935</color>
+
+    <!-- Surfaces -->
+    <color name="surface_bg">#FFF3F5F9</color>
+    <color name="chrome_bg">#FFFFFFFF</color>
     <color name="card_bg">#FFFFFFFF</color>
-    <color name="input_bg">#FFEFEFEF</color>
-    <color name="divider_color">#FFE0E0E0</color>
-    <color name="text_primary">#FF212121</color>
-    <color name="text_secondary">#FF666666</color>
+    <color name="input_bg">#FFEEF1F6</color>
+    <color name="divider_color">#FFE3E7EE</color>
+
+    <!-- Text / icons -->
+    <color name="text_primary">#FF1B1F27</color>
+    <color name="text_secondary">#FF6B7280</color>
+    <color name="text_muted">#FF9AA1AE</color>
+    <color name="icon_primary">#FF1B1F27</color>
+    <color name="icon_secondary">#FF6B7280</color>
+
+    <!-- Cast status chip (playback control bar) -->
+    <color name="status_ok_bg">#FFE7F6EC</color>
+    <color name="status_ok_text">#FF15803D</color>
+    <color name="status_busy_bg">#FFE3F0FD</color>
+    <color name="status_busy_text">#FF1565C0</color>
+    <color name="status_err_bg">#FFFDECEC</color>
+    <color name="status_err_text">#FFDC2626</color>
+    <color name="status_idle_bg">#FFEEF1F6</color>
+    <color name="status_idle_text">#FF6B7280</color>
+    <color name="control_scrim">#59141923</color>
 </resources>
